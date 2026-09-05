@@ -1,6 +1,7 @@
 const Anthropic = require("@anthropic-ai/sdk");
 const { getSupportStore } = require("./lib/blobs");
 const { buildSystemPrompt } = require("./lib/knowledge");
+const { isValidSessionId } = require("./lib/validate");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -46,7 +47,7 @@ exports.handler = async (event) => {
   }
 
   const { session_id, message } = payload;
-  if (typeof session_id !== "string" || session_id.length < 8 || session_id.length > 100) {
+  if (!isValidSessionId(session_id)) {
     return json(400, { error: "Invalid session_id" });
   }
   const trimmedMessage = String(message || "").trim().slice(0, MAX_MESSAGE_CHARS);

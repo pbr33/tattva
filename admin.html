@@ -185,6 +185,13 @@ const STATUS_LABEL = {
 const STATUS_OPTIONS = Object.keys(STATUS_LABEL);
 const fmt = n => "₹" + Number(n||0).toLocaleString("en-IN");
 
+// Every value below comes from public, unauthenticated endpoints (checkout
+// form fields, chat messages, tracked product ids/session ids) — all of it
+// is attacker-controllable and must be escaped before going into innerHTML,
+// or a crafted "customer name" / chat message becomes stored XSS running in
+// this authenticated admin session.
+const esc = v => String(v==null?"":v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
 let ALL_ORDERS = [];
 
 function toast(msg){
@@ -229,7 +236,8 @@ document.getElementById("exportBtn").onclick = exportCsv;
 
 async function loadAll(){
   const [ordersRes, sessionsRes, supportRes] = await Promise.all([ api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support") ]);
-  if(!ordersRes.ok || !sessionsRes.ok){ showLogin(); return; }
+  if(ordersRes.status===401 || sessionsRes.status===401){ showLogin(); return; }
+  if(!ordersRes.ok || !sessionsRes.ok){ toast("Could not load some data — check your connection and try again"); return; }
   const { orders } = await ordersRes.json();
   const { sessions } = await sessionsRes.json();
   ALL_ORDERS = orders;
@@ -262,7 +270,7 @@ function renderBreakdowns(orders){
   orders.forEach(o => { byStatus[o.status] = (byStatus[o.status]||0) + 1; });
   const statusRows = Object.keys(byStatus)
     .sort((a,b) => byStatus[b]-byStatus[a])
-    .map(s => `<div class="row"><span>${STATUS_LABEL[s]||s}</span><b>${byStatus[s]}</b></div>`).join("");
+    .map(s => `<div class="row"><span>${esc(STATUS_LABEL[s]||s)}</span><b>${byStatus[s]}</b></div>`).join("");
 
   const productQty = {};
   orders.filter(o => ["paid","processing","shipped","delivered"].includes(o.status)).forEach(o => {
@@ -271,7 +279,7 @@ function renderBreakdowns(orders){
   const topProducts = Object.keys(productQty)
     .sort((a,b) => productQty[b]-productQty[a])
     .slice(0,8)
-    .map(id => `<div class="row"><span>${id}</span><b>${productQty[id]}</b></div>`).join("");
+    .map(id => `<div class="row"><span>${esc(id)}</span><b>${productQty[id]}</b></div>`).join("");
 
   document.getElementById("breakdowns").innerHTML = `
     <div class="breakdown"><h3>Orders by Status</h3>${statusRows || '<div class="muted">No orders yet</div>'}</div>
@@ -312,31 +320,32 @@ function renderOrders(orders){
   if(!list.length){ body.innerHTML = `<tr><td colspan="7" class="empty">No matching orders</td></tr>`; return; }
 
   body.innerHTML = list.map(o => {
-    const itemsText = (o.items||[]).map(it => `${it.id||it.name} × ${it.qty}`).join(", ");
-    const custName = o.customer ? o.customer.name : "—";
-    const custPhone = o.customer ? o.customer.phone : "";
+    const itemsText = (o.items||[]).map(it => `${esc(it.id||it.name)} × ${Number(it.qty)||0}`).join(", ");
+    const custName = o.customer ? esc(o.customer.name) : "—";
+    const custPhone = o.customer ? esc(o.customer.phone) : "";
     const hist = (o.status_history||[]).slice(-4).map(h =>
-      `<div>${new Date(h.ts).toLocaleString("en-IN")} — ${STATUS_LABEL[h.status]||h.status}${h.note?" · "+h.note:""}</div>`
+      `<div>${esc(new Date(h.ts).toLocaleString("en-IN"))} — ${esc(STATUS_LABEL[h.status]||h.status)}${h.note?" · "+esc(h.note):""}</div>`
     ).join("");
     const options = STATUS_OPTIONS.map(s => `<option value="${s}" ${s===o.status?"selected":""}>${STATUS_LABEL[s]}</option>`).join("");
+    const oidAttr = esc(o.oid);
 
     return `<tr>
-      <td><b>${o.oid}</b><div class="muted">${new Date(o.created_at).toLocaleString("en-IN")}</div></td>
+      <td><b>${esc(o.oid)}</b><div class="muted">${esc(new Date(o.created_at).toLocaleString("en-IN"))}</div></td>
       <td>${custName}<div class="muted">${custPhone}</div></td>
       <td class="items-list">${itemsText}</td>
       <td>${fmt((o.amount||0)/100)}</td>
-      <td>${o.method}</td>
-      <td><span class="badge b-${o.status}">${STATUS_LABEL[o.status]||o.status}</span><div class="hist">${hist}</div></td>
+      <td>${esc(o.method)}</td>
+      <td><span class="badge b-${esc(o.status)}">${esc(STATUS_LABEL[o.status]||o.status)}</span><div class="hist">${hist}</div></td>
       <td>
         <div class="row-actions">
-          <select data-oid="${o.oid}" class="status-select">${options}</select>
+          <select data-oid="${oidAttr}" class="status-select">${options}</select>
           <input type="text" class="note-input" placeholder="Note (optional)">
-          <button class="save-btn" data-oid="${o.oid}">Save</button>
-          ${custPhone ? `<button class="wa-btn" data-oid="${o.oid}">💬 Notify</button>` : ""}
+          <button class="save-btn" data-oid="${oidAttr}">Save</button>
+          ${custPhone ? `<button class="wa-btn" data-oid="${oidAttr}">💬 Notify</button>` : ""}
         </div>
         <div class="shiptrack">
-          <input type="text" class="courier-input" placeholder="Courier" value="${o.courier||""}">
-          <input type="text" class="tracking-input" placeholder="Tracking #" value="${o.tracking_number||""}">
+          <input type="text" class="courier-input" placeholder="Courier" value="${esc(o.courier||"")}">
+          <input type="text" class="tracking-input" placeholder="Tracking #" value="${esc(o.tracking_number||"")}">
           <input type="number" class="refund-input" placeholder="Refund ₹" style="display:${o.status==='refunded'?'inline-block':'none'}" value="${o.refund_amount?(o.refund_amount/100):''}">
         </div>
       </td>
@@ -392,8 +401,15 @@ function exportCsv(){
     o.tracking_number||"",
     o.refund_amount ? ((o.refund_amount/100).toFixed(2)) : ""
   ]);
-  const esc = v => `"${String(v).replace(/"/g,'""')}"`;
-  const csv = [header, ...rows].map(r => r.map(esc).join(",")).join("\r\n");
+  // Prefix a leading =/+/-/@ with a space — otherwise a crafted "customer
+  // name" like `=cmd|'/c calc'!A1` becomes a live formula when the CSV is
+  // opened in Excel/Sheets (classic CSV-injection).
+  const csvCell = v => {
+    let s = String(v==null?"":v);
+    if (/^[=+\-@]/.test(s)) s = " " + s;
+    return `"${s.replace(/"/g,'""')}"`;
+  };
+  const csv = [header, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -410,14 +426,14 @@ function renderSessions(sessions, orders){
     const viewed = [...new Set(s.events.filter(e=>e.type==="product_view").map(e=>e.product_id))];
     const carted = [...new Set(s.events.filter(e=>e.type==="add_to_cart").map(e=>e.product_id))];
     const converted = s.converted_order_id
-      ? `<span class="badge b-paid">${s.converted_order_id}</span>`
+      ? `<span class="badge b-paid">${esc(s.converted_order_id)}</span>`
       : `<span class="muted">No</span>`;
     return `<tr>
-      <td><code>${s.session_id.slice(0,10)}…</code></td>
-      <td>${new Date(s.first_seen).toLocaleString("en-IN")}</td>
-      <td>${new Date(s.last_seen).toLocaleString("en-IN")}</td>
-      <td class="items-list">${viewed.length ? viewed.join(", ") : "—"}</td>
-      <td class="items-list">${carted.length ? carted.join(", ") : "—"}</td>
+      <td><code>${esc(s.session_id.slice(0,10))}…</code></td>
+      <td>${esc(new Date(s.first_seen).toLocaleString("en-IN"))}</td>
+      <td>${esc(new Date(s.last_seen).toLocaleString("en-IN"))}</td>
+      <td class="items-list">${viewed.length ? esc(viewed.join(", ")) : "—"}</td>
+      <td class="items-list">${carted.length ? esc(carted.join(", ")) : "—"}</td>
       <td>${converted}</td>
     </tr>`;
   }).join("");
@@ -429,23 +445,40 @@ function renderSupport(conversations){
 
   body.innerHTML = conversations.map((c,i) => {
     const last = c.messages[c.messages.length-1];
-    const lastText = last ? (last.content.length>60 ? last.content.slice(0,60)+"…" : last.content) : "";
+    const lastRaw = last ? (last.content.length>60 ? last.content.slice(0,60)+"…" : last.content) : "";
     const transcript = c.messages.map(m =>
-      `<div class="tmsg"><b>${m.role==="user"?"Customer":"Bot"}:</b> ${m.content}</div>`
+      `<div class="tmsg"><b>${m.role==="user"?"Customer":"Bot"}:</b> ${esc(m.content)}</div>`
     ).join("");
+    const sessionAttr = esc(c.session_id);
+    const nextStatus = c.status === "closed" ? "open" : "closed";
+    const actionLabel = c.status === "closed" ? "Reopen" : "Mark Resolved";
     return `<tr>
-      <td><code>${c.session_id.slice(0,10)}…</code></td>
+      <td><code>${esc(c.session_id.slice(0,10))}…</code></td>
       <td>${c.messages.length}</td>
-      <td class="items-list">${lastText}</td>
-      <td><span class="badge b-${c.status}">${c.status}</span></td>
-      <td class="muted">${new Date(c.updated_at).toLocaleString("en-IN")}</td>
-      <td><button class="expand-btn" data-i="${i}">View</button></td>
+      <td class="items-list">${esc(lastRaw)}</td>
+      <td><span class="badge b-${esc(c.status)}">${esc(c.status)}</span></td>
+      <td class="muted">${esc(new Date(c.updated_at).toLocaleString("en-IN"))}</td>
+      <td>
+        <div class="row-actions">
+          <button class="expand-btn" data-i="${i}">View</button>
+          <button class="resolve-btn" data-session="${sessionAttr}" data-next="${nextStatus}">${actionLabel}</button>
+        </div>
+      </td>
     </tr>
     <tr><td colspan="6" style="padding-top:0"><div class="transcript" id="transcript-${i}">${transcript}</div></td></tr>`;
   }).join("");
 
   body.querySelectorAll(".expand-btn").forEach(btn => {
     btn.onclick = () => document.getElementById("transcript-"+btn.dataset.i).classList.toggle("open");
+  });
+  body.querySelectorAll(".resolve-btn").forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const res = await api("/api/admin-update-support", { method:"POST", body: JSON.stringify({ session_id: btn.dataset.session, status: btn.dataset.next }) });
+      btn.disabled = false;
+      if(res.ok){ toast("Conversation updated"); loadAll(); }
+      else { toast("Update failed"); }
+    };
   });
 }
 

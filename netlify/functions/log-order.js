@@ -1,5 +1,6 @@
 const { getOrdersStore, getSessionsStore } = require("./lib/blobs");
 const { computeAmountPaise } = require("./lib/pricing");
+const { isValidOid, isValidSessionId, sanitizeCustomer, hasRequiredCustomerFields } = require("./lib/validate");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -17,15 +18,17 @@ exports.handler = async (event) => {
     return json(400, { error: "Invalid JSON body" });
   }
 
-  const { oid, items, customer, session_id } = payload;
-  if (typeof oid !== "string" || !oid.startsWith("SOT-")) {
+  const { oid, items } = payload;
+  if (!isValidOid(oid)) {
     return json(400, { error: "Invalid order id" });
   }
   const amount = computeAmountPaise(items);
   if (amount === null) return json(400, { error: "Invalid or empty basket" });
-  if (!customer || !customer.name || !customer.phone || !customer.addr || !customer.city || !customer.pin) {
+  const customer = sanitizeCustomer(payload.customer);
+  if (!hasRequiredCustomerFields(customer)) {
     return json(400, { error: "Missing customer details" });
   }
+  const session_id = isValidSessionId(payload.session_id) ? payload.session_id : null;
 
   const now = new Date().toISOString();
   const order = {
@@ -46,7 +49,7 @@ exports.handler = async (event) => {
   const store = getOrdersStore();
   await store.setJSON(oid, order);
 
-  if (typeof session_id === "string" && session_id.length >= 8) {
+  if (session_id) {
     const sessions = getSessionsStore();
     const sdoc = await sessions.get(session_id, { type: "json" });
     if (sdoc) {

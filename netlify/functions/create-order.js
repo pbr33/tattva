@@ -1,5 +1,6 @@
 const { computeAmountPaise } = require("./lib/pricing");
 const { getOrdersStore } = require("./lib/blobs");
+const { isValidOid, sanitizeCustomer } = require("./lib/validate");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -33,7 +34,11 @@ exports.handler = async (event) => {
     return json(400, { error: "Invalid or empty basket" });
   }
 
-  const receipt = String(payload.receipt || "SOT-" + Date.now().toString(36).toUpperCase()).slice(0, 40);
+  let receipt = "SOT-" + Date.now().toString(36).toUpperCase();
+  if (payload.receipt !== undefined) {
+    if (!isValidOid(payload.receipt)) return json(400, { error: "Invalid receipt" });
+    receipt = payload.receipt;
+  }
 
   let rzpRes;
   try {
@@ -70,7 +75,7 @@ exports.handler = async (event) => {
       payment_id: null,
       method: "razorpay",
       items: payload.items,
-      customer: payload.customer || null,
+      customer: sanitizeCustomer(payload.customer),
       amount: order.amount,
       currency: order.currency,
       status: "created",

@@ -20,11 +20,14 @@ exports.handler = async (event) => {
   }
 
   const { session_id, type, product_id } = payload;
-  if (typeof session_id !== "string" || session_id.length < 8 || session_id.length > 100) {
+  if (typeof session_id !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(session_id)) {
     return json(400, { error: "Invalid session_id" });
   }
   if (!ALLOWED_TYPES.has(type)) {
     return json(400, { error: "Invalid event type" });
+  }
+  if (product_id !== undefined && (typeof product_id !== "string" || !/^[A-Za-z0-9_-]{1,60}$/.test(product_id))) {
+    return json(400, { error: "Invalid product_id" });
   }
 
   const store = getSessionsStore();
