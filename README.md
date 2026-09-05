@@ -25,7 +25,7 @@ persistent order storage can't safely live in client-side JS alone.
 ├── index.html                    # the storefront (all markup/CSS/JS)
 ├── admin.html                    # admin dashboard (orders + visitor activity)
 ├── om-logo.png                   # site logo (favicon, header, footer)
-├── package.json                  # one dependency: @netlify/blobs
+├── package.json                  # @netlify/blobs, @anthropic-ai/sdk
 ├── netlify.toml                  # Netlify build/publish/functions config
 ├── robots.txt / sitemap.xml / manifest.webmanifest
 └── netlify/functions/
@@ -33,10 +33,12 @@ persistent order storage can't safely live in client-side JS alone.
     ├── verify-payment.js         # Razorpay signature verification
     ├── track-event.js            # visitor activity logging (public)
     ├── log-order.js              # records WhatsApp-path orders (public)
+    ├── chat.js                   # AI support chatbot (public)
     ├── admin-login.js / admin-logout.js
-    ├── admin-orders.js / admin-sessions.js / admin-update-order.js
+    ├── admin-orders.js / admin-sessions.js / admin-support.js / admin-update-order.js
     └── lib/
         ├── pricing.js            # authoritative price table (mirrors PRODUCTS)
+        ├── knowledge.js           # chatbot grounding (mirrors PRODUCTS/FAQS/policies)
         ├── blobs.js               # Netlify Blobs store helpers
         └── auth.js                # admin session cookie sign/verify
 ```
@@ -51,7 +53,7 @@ run too — use the Netlify CLI, which serves the static site *and* the
 functions together:
 
 ```bash
-npm install                 # installs @netlify/blobs
+npm install                 # installs @netlify/blobs, @anthropic-ai/sdk
 npm install -g netlify-cli  # if you don't already have it
 netlify link                # first time only — connects this folder to your Netlify site
 netlify dev                 # serves the site + functions at http://localhost:8888
@@ -64,9 +66,10 @@ RAZORPAY_KEY_ID=rzp_test_...
 RAZORPAY_KEY_SECRET=...
 ADMIN_PASSWORD=choose-a-strong-password
 ADMIN_SESSION_SECRET=a-long-random-string
+ANTHROPIC_API_KEY=sk-ant-...          # console.anthropic.com → Settings → API Keys
 ```
 
-The same four values need to be set on the live Netlify site too —
+The same five values need to be set on the live Netlify site too —
 `netlify env:set NAME value`, or via the Netlify dashboard (Site
 configuration → Environment variables). Netlify Blobs (used for order/activity
 storage) is meant to auto-configure inside deployed Functions, but didn't in
@@ -121,16 +124,41 @@ with `ADMIN_PASSWORD`. It shows:
   WhatsApp fallback, with customer/items/amount and a status dropdown
   (Processing → Shipped → Delivered, or Cancelled / Return / Replacement /
   Refunded) plus a note field — each change is timestamped and kept in that
-  order's history.
+  order's history. Also: search/filter by order ID, name, phone or status;
+  courier + tracking number fields; a one-click "Notify customer" WhatsApp
+  button per order; a refund-amount field on `refunded`; and a CSV export.
+- **Overview** — order counts by status, top products by quantity sold, and
+  the visitor funnel (sessions → added to basket → converted).
 - **Visitor activity** — a first-party funnel: session start, products
   viewed, products added to basket, and whether that session converted to an
   order. No third-party analytics or ad tracking involved (see the Privacy
   Policy section on the storefront).
+- **Support conversations** — every AI chatbot conversation (see below),
+  with an escalated/open/closed status and the full transcript.
 
 The page itself is excluded from search indexing (`robots.txt` +
 `X-Robots-Tag` header) and every admin API call requires a valid signed
 session cookie issued by `/api/admin-login` — there's no public entry point
 into order data.
+
+## AI customer-care chatbot
+
+A floating chat widget (bottom-right, above the WhatsApp button) answers
+questions grounded only in the site's actual product catalog, FAQ and
+policies (`netlify/functions/lib/knowledge.js` — keep this in sync with
+`PRODUCTS`/`FAQS`/the policy sections in `index.html` when they change). It
+cannot look up a specific order — for order-specific questions, or anything
+it can't answer from the grounding content, or an explicit "talk to a
+human" request, it flags escalation and the widget surfaces a WhatsApp
+handoff link pre-filled with the conversation so the Mandir doesn't start
+from zero.
+
+Needs `ANTHROPIC_API_KEY` (see Local development above). Runs on Claude
+Opus 5 at `effort: "low"` — a workload-appropriate default for FAQ-style
+chat per Anthropic's own guidance, not a quality downgrade; raise it in
+`chat.js` if replies need to get sharper. Each message is a real API call —
+`chat.js` caps message length, stored history length, and forces escalation
+after a long conversation, since cost scales with usage.
 
 ## Deploy
 
