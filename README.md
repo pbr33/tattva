@@ -35,10 +35,13 @@ persistent order storage can't safely live in client-side JS alone.
     ├── log-order.js              # records WhatsApp-path orders (public)
     ├── chat.js                   # AI support chatbot (public)
     ├── admin-login.js / admin-logout.js
-    ├── admin-orders.js / admin-sessions.js / admin-support.js / admin-update-order.js
+    ├── admin-orders.js / admin-sessions.js / admin-support.js
+    ├── admin-update-order.js / admin-update-support.js / admin-create-shipment.js
     └── lib/
         ├── pricing.js            # authoritative price table (mirrors PRODUCTS)
         ├── knowledge.js           # chatbot grounding (mirrors PRODUCTS/FAQS/policies)
+        ├── shiprocket.js          # Shiprocket auth + order creation
+        ├── validate.js            # input validation (oid/session_id format, customer field caps)
         ├── blobs.js               # Netlify Blobs store helpers
         └── auth.js                # admin session cookie sign/verify
 ```
@@ -67,9 +70,12 @@ RAZORPAY_KEY_SECRET=...
 ADMIN_PASSWORD=choose-a-strong-password
 ADMIN_SESSION_SECRET=a-long-random-string
 ANTHROPIC_API_KEY=sk-ant-...          # console.anthropic.com → Settings → API Keys
+SHIPROCKET_EMAIL=...                  # a dedicated API user, not your main login — see below
+SHIPROCKET_PASSWORD=...
+SHIPROCKET_PICKUP_LOCATION=...        # exact pickup-address nickname from your Shiprocket dashboard
 ```
 
-The same five values need to be set on the live Netlify site too —
+The same values need to be set on the live Netlify site too —
 `netlify env:set NAME value`, or via the Netlify dashboard (Site
 configuration → Environment variables). Netlify Blobs (used for order/activity
 storage) is meant to auto-configure inside deployed Functions, but didn't in
@@ -159,6 +165,40 @@ chat per Anthropic's own guidance, not a quality downgrade; raise it in
 `chat.js` if replies need to get sharper. Each message is a real API call —
 `chat.js` caps message length, stored history length, and forces escalation
 after a long conversation, since cost scales with usage.
+
+## Shipping (Shiprocket)
+
+Once a Razorpay payment is verified, `verify-payment.js` automatically
+creates a matching order in Shiprocket (`netlify/functions/lib/shiprocket.js`)
+and logs the result into that order's activity history — visible in
+`/admin`. WhatsApp-path orders aren't auto-verified paid, so they get a
+"Create Shiprocket Order" button in the admin panel instead
+(`admin-create-shipment.js`); a failed auto-creation shows the same button
+as "Retry Shiprocket".
+
+**Deliberate scope boundary:** this only *creates* the Shiprocket order
+(free). Assigning a courier/AWB and scheduling pickup — the step that
+commits to real courier charges — is left as a manual action in the
+Shiprocket dashboard, not automated here.
+
+**Setup required in the Shiprocket dashboard before this works:**
+1. Add at least one **Pickup Address** (Settings → Pickup Addresses) — its
+   exact nickname is `SHIPROCKET_PICKUP_LOCATION`.
+2. Create a dedicated **API User** (Settings → API → Add New API User) —
+   use *that* user's email/password for `SHIPROCKET_EMAIL`/
+   `SHIPROCKET_PASSWORD`, not your main login. Copy the password immediately
+   — Shiprocket only shows it once.
+
+**Known gap:** the order-creation API requires per-package `length` /
+`breadth` / `height` / `weight`, which the product catalog doesn't track.
+`lib/shiprocket.js` uses one fixed default (15×12×5cm, 0.3kg) for every
+order regardless of contents — safe for any single item or small combo in
+this catalog, but worth replacing with real per-product weights once actual
+shipments show what's accurate. Similarly, checkout doesn't collect a
+"state" field (Shiprocket requires one) — `lib/shiprocket.js` resolves it
+from the PIN code via India Post's public lookup
+(`api.postalpincode.in`), falling back to the city name if that lookup
+fails for some reason.
 
 ## Deploy
 

@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { getOrdersStore, getSessionsStore } = require("./lib/blobs");
+const { createShipment } = require("./lib/shiprocket");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -56,6 +57,21 @@ exports.handler = async (event) => {
         doc.status = "paid";
         doc.status_history.push({ status: "paid", note: "Payment verified", ts: now });
         doc.updated_at = now;
+
+        // Auto-create the Shiprocket order now that payment is confirmed.
+        // This only creates the order (free) — assigning a courier/AWB and
+        // scheduling pickup (the step that costs money) stays a manual
+        // action in the Shiprocket dashboard. A failure here is logged into
+        // the same activity trail but never affects the payment response.
+        try {
+          const shipment = await createShipment(doc);
+          doc.shiprocket = { ...shipment, error: null, created_at: new Date().toISOString() };
+          doc.status_history.push({ status: doc.status, note: `Shiprocket order created: ${shipment.order_id}`, ts: new Date().toISOString() });
+        } catch (shipErr) {
+          doc.shiprocket = { order_id: null, shipment_id: null, error: shipErr.message, created_at: new Date().toISOString() };
+          doc.status_history.push({ status: doc.status, note: `Shiprocket order creation failed: ${shipErr.message}`, ts: new Date().toISOString() });
+        }
+
         await orders.setJSON(oid, doc);
 
         if (typeof session_id === "string" && session_id.length >= 8) {

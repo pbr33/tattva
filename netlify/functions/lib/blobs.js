@@ -15,5 +15,6 @@ function storeOptions(name) {
 const getOrdersStore = () => getStore(storeOptions("orders"));
 const getSessionsStore = () => getStore(storeOptions("sessions"));
 const getSupportStore = () => getStore(storeOptions("support"));
+const getMiscStore = () => getStore(storeOptions("misc")); // small system-level values (e.g. cached third-party tokens)
 
-module.exports = { getOrdersStore, getSessionsStore, getSupportStore };
+module.exports = { getOrdersStore, getSessionsStore, getSupportStore, getMiscStore };

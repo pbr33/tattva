@@ -88,6 +88,11 @@ tr:last-child td{border-bottom:none}
 .items-list{font-size:.82rem;color:var(--ink-soft)}
 .hist{font-size:.78rem;color:var(--ink-soft);margin-top:.3rem}
 .hist div{margin-bottom:.15rem}
+.sr-line{font-size:.78rem;margin-top:.3rem}
+.sr-line.sr-ok{color:var(--ok)}
+.sr-line.sr-err{color:var(--warn)}
+.sr-btn{margin-top:.3rem;background:var(--ink);color:var(--ivory);padding:.25rem .6rem;border-radius:6px;font-size:.75rem}
+.sr-btn:hover{background:var(--kumkum-deep)}
 .empty{padding:2rem;text-align:center;color:var(--ink-soft)}
 .expand-btn{background:var(--ivory-2);color:var(--ink);padding:.3rem .7rem;border-radius:6px;font-size:.78rem}
 .expand-btn:hover{background:var(--gold-pale)}
@@ -328,6 +333,14 @@ function renderOrders(orders){
     ).join("");
     const options = STATUS_OPTIONS.map(s => `<option value="${s}" ${s===o.status?"selected":""}>${STATUS_LABEL[s]}</option>`).join("");
     const oidAttr = esc(o.oid);
+    const sr = o.shiprocket;
+    const srLine = sr && sr.order_id
+      ? `<div class="sr-line sr-ok">✔ Shiprocket: ${esc(String(sr.order_id))}</div>`
+      : sr && sr.error
+        ? `<div class="sr-line sr-err">⚠ Shiprocket failed: ${esc(sr.error)}</div><button class="sr-btn" data-oid="${oidAttr}">Retry Shiprocket</button>`
+        : ["paid","processing","shipped","delivered","whatsapp_pending"].includes(o.status)
+          ? `<button class="sr-btn" data-oid="${oidAttr}">Create Shiprocket Order</button>`
+          : "";
 
     return `<tr>
       <td><b>${esc(o.oid)}</b><div class="muted">${esc(new Date(o.created_at).toLocaleString("en-IN"))}</div></td>
@@ -335,7 +348,7 @@ function renderOrders(orders){
       <td class="items-list">${itemsText}</td>
       <td>${fmt((o.amount||0)/100)}</td>
       <td>${esc(o.method)}</td>
-      <td><span class="badge b-${esc(o.status)}">${esc(STATUS_LABEL[o.status]||o.status)}</span><div class="hist">${hist}</div></td>
+      <td><span class="badge b-${esc(o.status)}">${esc(STATUS_LABEL[o.status]||o.status)}</span><div class="hist">${hist}</div>${srLine}</td>
       <td>
         <div class="row-actions">
           <select data-oid="${oidAttr}" class="status-select">${options}</select>
@@ -381,6 +394,15 @@ function renderOrders(orders){
       const o = ALL_ORDERS.find(x => x.oid === btn.dataset.oid);
       if(!o || !o.customer || !o.customer.phone) return;
       window.open(waLink(o.customer.phone, notifyMessage(o)), "_blank");
+    };
+  });
+
+  body.querySelectorAll(".sr-btn").forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Creating…";
+      const res = await api("/api/admin-create-shipment", { method:"POST", body: JSON.stringify({ oid: btn.dataset.oid }) });
+      if(res.ok){ toast("Shiprocket order created"); loadAll(); }
+      else { const d = await res.json().catch(()=>({})); toast("Shiprocket: " + (d.error||"failed")); btn.disabled=false; btn.textContent="Create Shiprocket Order"; }
     };
   });
 }
