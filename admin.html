@@ -46,6 +46,20 @@ section h2{font-size:1.15rem;color:var(--kumkum-deep);margin-bottom:.8rem}
 .stat .n{font-family:'Rozha One',serif;font-size:1.8rem;color:var(--kumkum)}
 .stat .l{font-size:.8rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em}
 
+.breakdowns{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.9rem;margin-top:.9rem}
+.breakdown{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:1rem 1.2rem}
+.breakdown h3{font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:.6rem}
+.breakdown .row{display:flex;justify-content:space-between;padding:.3rem 0;font-size:.88rem;border-bottom:1px dashed var(--line)}
+.breakdown .row:last-child{border-bottom:none}
+.breakdown .row b{color:var(--kumkum-deep)}
+
+.toolbar{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.8rem}
+.toolbar input[type=text]{padding:.5rem .8rem;border:1px solid var(--line);border-radius:8px;min-width:14rem;background:var(--white)}
+.toolbar select{padding:.5rem .8rem;border:1px solid var(--line);border-radius:8px;background:var(--white)}
+.toolbar button{background:var(--ink);color:var(--ivory);padding:.5rem 1rem;border-radius:8px;font-size:.85rem}
+.toolbar button:hover{background:var(--kumkum-deep)}
+.toolbar .count{font-size:.82rem;color:var(--ink-soft);margin-left:auto}
+
 .table-wrap{overflow-x:auto;background:var(--white);border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.88rem;min-width:760px}
 th,td{padding:.6rem .8rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
@@ -62,14 +76,28 @@ tr:last-child td{border-bottom:none}
 .b-refunded{background:#E7E7E7;color:#444}
 .row-actions{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-top:.4rem}
 .row-actions select{padding:.3rem .5rem;border:1px solid var(--line);border-radius:6px}
-.row-actions input[type=text]{padding:.3rem .5rem;border:1px solid var(--line);border-radius:6px;width:11rem}
+.row-actions input[type=text],.row-actions input[type=number]{padding:.3rem .5rem;border:1px solid var(--line);border-radius:6px;width:8.5rem}
+.row-actions input.note-input{width:11rem}
 .row-actions button{background:var(--kumkum);color:var(--white);padding:.35rem .8rem;border-radius:6px;font-size:.82rem}
 .row-actions button:hover{background:var(--kumkum-deep)}
+.row-actions button.wa-btn{background:#25D366}
+.row-actions button.wa-btn:hover{background:#1DA851}
+.shiptrack{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.35rem}
+.shiptrack input{width:8.5rem}
 .muted{color:var(--ink-soft);font-size:.8rem}
 .items-list{font-size:.82rem;color:var(--ink-soft)}
 .hist{font-size:.78rem;color:var(--ink-soft);margin-top:.3rem}
 .hist div{margin-bottom:.15rem}
 .empty{padding:2rem;text-align:center;color:var(--ink-soft)}
+.expand-btn{background:var(--ivory-2);color:var(--ink);padding:.3rem .7rem;border-radius:6px;font-size:.78rem}
+.expand-btn:hover{background:var(--gold-pale)}
+.transcript{display:none;background:var(--ivory-2);border-radius:8px;padding:.6rem .8rem;margin-top:.5rem;max-height:220px;overflow-y:auto}
+.transcript.open{display:block}
+.transcript .tmsg{font-size:.82rem;margin-bottom:.4rem}
+.transcript .tmsg b{color:var(--kumkum-deep)}
+.b-open{background:#DCE6FB;color:#1F4FA0}
+.b-escalated{background:#FCE9C9;color:#8A5A00}
+.b-closed{background:#E7E7E7;color:#444}
 .toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--ivory);padding:.7rem 1.3rem;border-radius:999px;font-size:.88rem;opacity:0;pointer-events:none;transition:all .3s}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -95,10 +123,17 @@ tr:last-child td{border-bottom:none}
     <section>
       <h2>Overview</h2>
       <div class="stats" id="stats"></div>
+      <div class="breakdowns" id="breakdowns"></div>
     </section>
 
     <section>
       <h2>Orders</h2>
+      <div class="toolbar">
+        <input type="text" id="orderSearch" placeholder="Search order ID, name or phone…">
+        <select id="statusFilter"><option value="">All statuses</option></select>
+        <button id="exportBtn">⬇ Export CSV</button>
+        <span class="count" id="orderCount"></span>
+      </div>
       <div class="table-wrap">
         <table id="ordersTable">
           <thead><tr>
@@ -122,6 +157,19 @@ tr:last-child td{border-bottom:none}
         </table>
       </div>
     </section>
+
+    <section>
+      <h2>Support Conversations</h2>
+      <div class="table-wrap">
+        <table id="supportTable">
+          <thead><tr>
+            <th>Session</th><th>Messages</th><th>Last message</th>
+            <th>Status</th><th>Updated</th><th></th>
+          </tr></thead>
+          <tbody id="supportBody"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -136,6 +184,8 @@ const STATUS_LABEL = {
 };
 const STATUS_OPTIONS = Object.keys(STATUS_LABEL);
 const fmt = n => "₹" + Number(n||0).toLocaleString("en-IN");
+
+let ALL_ORDERS = [];
 
 function toast(msg){
   const t = document.getElementById("toast");
@@ -164,14 +214,30 @@ document.getElementById("logoutBtn").onclick = async () => {
   showLogin();
 };
 
+// Populate the status filter dropdown once from STATUS_LABEL
+(() => {
+  const sel = document.getElementById("statusFilter");
+  STATUS_OPTIONS.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s; opt.textContent = STATUS_LABEL[s];
+    sel.appendChild(opt);
+  });
+})();
+document.getElementById("orderSearch").addEventListener("input", () => renderOrders(ALL_ORDERS));
+document.getElementById("statusFilter").addEventListener("change", () => renderOrders(ALL_ORDERS));
+document.getElementById("exportBtn").onclick = exportCsv;
+
 async function loadAll(){
-  const [ordersRes, sessionsRes] = await Promise.all([ api("/api/admin-orders"), api("/api/admin-sessions") ]);
+  const [ordersRes, sessionsRes, supportRes] = await Promise.all([ api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support") ]);
   if(!ordersRes.ok || !sessionsRes.ok){ showLogin(); return; }
   const { orders } = await ordersRes.json();
   const { sessions } = await sessionsRes.json();
+  ALL_ORDERS = orders;
   renderStats(orders, sessions);
+  renderBreakdowns(orders);
   renderOrders(orders);
   renderSessions(sessions, orders);
+  if(supportRes.ok){ const { conversations } = await supportRes.json(); renderSupport(conversations); }
 }
 
 function renderStats(orders, sessions){
@@ -191,11 +257,61 @@ function renderStats(orders, sessions){
   `;
 }
 
-function renderOrders(orders){
-  const body = document.getElementById("ordersBody");
-  if(!orders.length){ body.innerHTML = `<tr><td colspan="7" class="empty">No orders yet</td></tr>`; return; }
+function renderBreakdowns(orders){
+  const byStatus = {};
+  orders.forEach(o => { byStatus[o.status] = (byStatus[o.status]||0) + 1; });
+  const statusRows = Object.keys(byStatus)
+    .sort((a,b) => byStatus[b]-byStatus[a])
+    .map(s => `<div class="row"><span>${STATUS_LABEL[s]||s}</span><b>${byStatus[s]}</b></div>`).join("");
 
-  body.innerHTML = orders.map(o => {
+  const productQty = {};
+  orders.filter(o => ["paid","processing","shipped","delivered"].includes(o.status)).forEach(o => {
+    (o.items||[]).forEach(it => { const id = it.id||it.name; productQty[id] = (productQty[id]||0) + (it.qty||0); });
+  });
+  const topProducts = Object.keys(productQty)
+    .sort((a,b) => productQty[b]-productQty[a])
+    .slice(0,8)
+    .map(id => `<div class="row"><span>${id}</span><b>${productQty[id]}</b></div>`).join("");
+
+  document.getElementById("breakdowns").innerHTML = `
+    <div class="breakdown"><h3>Orders by Status</h3>${statusRows || '<div class="muted">No orders yet</div>'}</div>
+    <div class="breakdown"><h3>Top Products (paid+)</h3>${topProducts || '<div class="muted">No paid orders yet</div>'}</div>
+  `;
+}
+
+function waLink(phone, text){
+  const digits = String(phone||"").replace(/\D/g,"");
+  const withCountry = digits.length===10 ? "91"+digits : digits;
+  return `https://wa.me/${withCountry}?text=${encodeURIComponent(text)}`;
+}
+
+function notifyMessage(o){
+  let t = `🕉 *Shri Om Tattva — Order Update*\nOrder ID: ${o.oid}\nStatus: ${STATUS_LABEL[o.status]||o.status}`;
+  if(o.courier || o.tracking_number) t += `\nCourier: ${o.courier||"—"}\nTracking #: ${o.tracking_number||"—"}`;
+  if(o.status==="refunded" && o.refund_amount) t += `\nRefund amount: ${fmt(o.refund_amount/100)}`;
+  t += `\n\nThank you for your order. 🙏`;
+  return t;
+}
+
+function filteredOrders(orders){
+  const q = document.getElementById("orderSearch").value.trim().toLowerCase();
+  const statusFilter = document.getElementById("statusFilter").value;
+  return orders.filter(o => {
+    if(statusFilter && o.status !== statusFilter) return false;
+    if(!q) return true;
+    const custName = (o.customer && o.customer.name || "").toLowerCase();
+    const custPhone = (o.customer && o.customer.phone || "").toLowerCase();
+    return o.oid.toLowerCase().includes(q) || custName.includes(q) || custPhone.includes(q);
+  });
+}
+
+function renderOrders(orders){
+  const list = filteredOrders(orders);
+  document.getElementById("orderCount").textContent = `${list.length} of ${orders.length} orders`;
+  const body = document.getElementById("ordersBody");
+  if(!list.length){ body.innerHTML = `<tr><td colspan="7" class="empty">No matching orders</td></tr>`; return; }
+
+  body.innerHTML = list.map(o => {
     const itemsText = (o.items||[]).map(it => `${it.id||it.name} × ${it.qty}`).join(", ");
     const custName = o.customer ? o.customer.name : "—";
     const custPhone = o.customer ? o.customer.phone : "";
@@ -216,10 +332,23 @@ function renderOrders(orders){
           <select data-oid="${o.oid}" class="status-select">${options}</select>
           <input type="text" class="note-input" placeholder="Note (optional)">
           <button class="save-btn" data-oid="${o.oid}">Save</button>
+          ${custPhone ? `<button class="wa-btn" data-oid="${o.oid}">💬 Notify</button>` : ""}
+        </div>
+        <div class="shiptrack">
+          <input type="text" class="courier-input" placeholder="Courier" value="${o.courier||""}">
+          <input type="text" class="tracking-input" placeholder="Tracking #" value="${o.tracking_number||""}">
+          <input type="number" class="refund-input" placeholder="Refund ₹" style="display:${o.status==='refunded'?'inline-block':'none'}" value="${o.refund_amount?(o.refund_amount/100):''}">
         </div>
       </td>
     </tr>`;
   }).join("");
+
+  body.querySelectorAll(".status-select").forEach(sel => {
+    sel.addEventListener("change", () => {
+      const refundInput = sel.closest("tr").querySelector(".refund-input");
+      refundInput.style.display = sel.value === "refunded" ? "inline-block" : "none";
+    });
+  });
 
   body.querySelectorAll(".save-btn").forEach(btn => {
     btn.onclick = async () => {
@@ -227,13 +356,50 @@ function renderOrders(orders){
       const row = btn.closest("tr");
       const status = row.querySelector(".status-select").value;
       const note = row.querySelector(".note-input").value;
+      const courier = row.querySelector(".courier-input").value;
+      const tracking_number = row.querySelector(".tracking-input").value;
+      const refund_amount = row.querySelector(".refund-input").value;
       btn.disabled = true; btn.textContent = "Saving…";
-      const res = await api("/api/admin-update-order", { method:"POST", body: JSON.stringify({ oid, status, note }) });
+      const res = await api("/api/admin-update-order", { method:"POST", body: JSON.stringify({ oid, status, note, courier, tracking_number, refund_amount: refund_amount||undefined }) });
       btn.disabled = false; btn.textContent = "Save";
       if(res.ok){ toast("Order updated"); loadAll(); }
       else { toast("Update failed"); }
     };
   });
+
+  body.querySelectorAll(".wa-btn").forEach(btn => {
+    btn.onclick = () => {
+      const o = ALL_ORDERS.find(x => x.oid === btn.dataset.oid);
+      if(!o || !o.customer || !o.customer.phone) return;
+      window.open(waLink(o.customer.phone, notifyMessage(o)), "_blank");
+    };
+  });
+}
+
+function exportCsv(){
+  const list = filteredOrders(ALL_ORDERS);
+  const header = ["Order ID","Date","Customer","Phone","Items","Amount","Method","Status","Courier","Tracking #","Refund"];
+  const rows = list.map(o => [
+    o.oid,
+    new Date(o.created_at).toLocaleString("en-IN"),
+    o.customer ? o.customer.name : "",
+    o.customer ? o.customer.phone : "",
+    (o.items||[]).map(it => `${it.id||it.name} x${it.qty}`).join("; "),
+    ((o.amount||0)/100).toFixed(2),
+    o.method,
+    STATUS_LABEL[o.status]||o.status,
+    o.courier||"",
+    o.tracking_number||"",
+    o.refund_amount ? ((o.refund_amount/100).toFixed(2)) : ""
+  ]);
+  const esc = v => `"${String(v).replace(/"/g,'""')}"`;
+  const csv = [header, ...rows].map(r => r.map(esc).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `orders-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function renderSessions(sessions, orders){
@@ -255,6 +421,32 @@ function renderSessions(sessions, orders){
       <td>${converted}</td>
     </tr>`;
   }).join("");
+}
+
+function renderSupport(conversations){
+  const body = document.getElementById("supportBody");
+  if(!conversations.length){ body.innerHTML = `<tr><td colspan="6" class="empty">No support conversations yet</td></tr>`; return; }
+
+  body.innerHTML = conversations.map((c,i) => {
+    const last = c.messages[c.messages.length-1];
+    const lastText = last ? (last.content.length>60 ? last.content.slice(0,60)+"…" : last.content) : "";
+    const transcript = c.messages.map(m =>
+      `<div class="tmsg"><b>${m.role==="user"?"Customer":"Bot"}:</b> ${m.content}</div>`
+    ).join("");
+    return `<tr>
+      <td><code>${c.session_id.slice(0,10)}…</code></td>
+      <td>${c.messages.length}</td>
+      <td class="items-list">${lastText}</td>
+      <td><span class="badge b-${c.status}">${c.status}</span></td>
+      <td class="muted">${new Date(c.updated_at).toLocaleString("en-IN")}</td>
+      <td><button class="expand-btn" data-i="${i}">View</button></td>
+    </tr>
+    <tr><td colspan="6" style="padding-top:0"><div class="transcript" id="transcript-${i}">${transcript}</div></td></tr>`;
+  }).join("");
+
+  body.querySelectorAll(".expand-btn").forEach(btn => {
+    btn.onclick = () => document.getElementById("transcript-"+btn.dataset.i).classList.toggle("open");
+  });
 }
 
 // On load, try the dashboard directly — if the session cookie is still valid

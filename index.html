@@ -274,6 +274,28 @@ footer a:hover{color:var(--gold-pale);padding-left:.3rem}
 .wa-float:hover{transform:scale(1.1)}
 .wa-float svg{width:30px;height:30px;fill:#fff}
 
+/* ============ SUPPORT CHAT WIDGET ============ */
+.chat-float{position:fixed;bottom:5.7rem;right:1.4rem;z-index:75;width:56px;height:56px;border-radius:50%;background:var(--kumkum);border:none;display:grid;place-items:center;box-shadow:0 8px 26px rgba(179,37,30,.4);transition:transform .25s var(--ease);cursor:pointer}
+.chat-float:hover{transform:scale(1.08)}
+.chat-float svg{width:26px;height:26px;fill:var(--ivory)}
+.chat-panel{position:fixed;bottom:1.4rem;right:1.4rem;z-index:95;width:min(360px,calc(100vw - 2rem));max-height:min(560px,calc(100vh - 3rem));background:var(--white);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:translateY(16px) scale(.97);pointer-events:none;transition:all .25s var(--ease)}
+.chat-panel.open{opacity:1;transform:none;pointer-events:auto}
+.chat-head{background:linear-gradient(135deg,var(--kumkum-deep),#5E0C08);color:var(--ivory);padding:.9rem 1.1rem;display:flex;justify-content:space-between;align-items:center;font-family:'Rozha One',serif;font-size:1.05rem}
+.chat-head button{color:var(--ivory);font-size:1.4rem;line-height:1;background:none}
+.chat-body{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.6rem;background:var(--ivory-2)}
+.cmsg{max-width:85%;padding:.55rem .8rem;border-radius:12px;font-size:.88rem;line-height:1.4}
+.cmsg.bot{background:var(--white);align-self:flex-start;border-bottom-left-radius:3px}
+.cmsg.user{background:var(--kumkum);color:var(--ivory);align-self:flex-end;border-bottom-right-radius:3px}
+.cmsg.typing{background:var(--white);align-self:flex-start;color:var(--ink-soft);font-style:italic}
+.chat-human{padding:.55rem 1rem;background:#E9F9EE;border-top:1px solid #CFEBD8;text-align:center}
+.chat-human a{color:#1B7A3D;font-size:.82rem;font-weight:700}
+.chat-input-row{display:flex;gap:.5rem;padding:.8rem;border-top:1px solid var(--line,#E5D9C3)}
+.chat-input-row input{flex:1;padding:.6rem .8rem;border:1px solid #E5D9C3;border-radius:999px;font-size:.88rem}
+.chat-input-row button{width:40px;height:40px;border-radius:50%;background:var(--kumkum);color:var(--ivory);font-size:1rem;flex:none}
+.chat-input-row button:hover{background:var(--kumkum-deep)}
+.chat-input-row button:disabled{opacity:.5;cursor:default}
+@media(max-width:480px){.chat-panel{right:.6rem;bottom:.6rem}.chat-float{right:1rem}}
+
 /* ============ CART DRAWER ============ */
 .overlay{position:fixed;inset:0;background:rgba(20,12,8,.6);opacity:0;pointer-events:none;transition:opacity .25s;z-index:80;backdrop-filter:blur(2px)}
 .overlay.open{opacity:1;pointer-events:auto}
@@ -731,6 +753,23 @@ header.scrolled .menu-btn{color:var(--ink)}
 <a class="wa-float" href="#" target="_blank" rel="noopener" aria-label="Chat on WhatsApp" id="waFloat">
   <svg viewBox="0 0 32 32"><path d="M16 3C9.4 3 4 8.4 4 15c0 2.6.8 5 2.2 7L4 29l7.2-2.1c1.5.8 3.1 1.2 4.8 1.2 6.6 0 12-5.4 12-12S22.6 3 16 3zm0 21.8c-1.5 0-3-.4-4.3-1.1l-.3-.2-4.3 1.2 1.2-4.1-.2-.3C7 18.9 6.2 17 6.2 15c0-5.4 4.4-9.8 9.8-9.8s9.8 4.4 9.8 9.8-4.4 9.8-9.8 9.8zm5.4-7.3c-.3-.1-1.7-.9-2-1s-.5-.1-.7.1c-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-.3-.1-1.2-.5-2.4-1.5-.9-.8-1.5-1.8-1.6-2.1-.2-.3 0-.5.1-.6l.4-.5c.1-.2.2-.3.3-.5.1-.2 0-.4 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.1.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3z"/></svg>
 </a>
+
+<button class="chat-float" id="chatFloat" aria-label="Chat with our support assistant" onclick="toggleChatWidget()">
+  <svg viewBox="0 0 24 24"><path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-5 4v-4H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+</button>
+
+<div class="chat-panel" id="chatPanel" role="dialog" aria-label="Customer care chat">
+  <div class="chat-head">
+    <span>🕉 Ask Shri Om Tattva</span>
+    <button onclick="toggleChatWidget(false)" aria-label="Close chat">×</button>
+  </div>
+  <div class="chat-body" id="chatBody"></div>
+  <div class="chat-human"><a href="#" id="chatWaLink" target="_blank" rel="noopener">💬 Talk to a human on WhatsApp</a></div>
+  <div class="chat-input-row">
+    <input type="text" id="chatInput" placeholder="Ask about products, policies…" maxlength="800">
+    <button id="chatSendBtn" aria-label="Send message">➤</button>
+  </div>
+</div>
 
 <button class="to-top" id="toTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">↑</button>
 
@@ -1339,6 +1378,7 @@ function applyContactConfig(){
   phone.href = "tel:+" + CONFIG.WHATSAPP;
   phone.textContent = CONFIG.PHONE_DISPLAY;
   document.getElementById("footAddress").textContent = CONFIG.ADDRESS;
+  document.getElementById("chatWaLink").href = wa;
 }
 function renderProductSchema(){
   const items = PRODUCTS.map((p,i)=>({
@@ -1351,6 +1391,65 @@ function renderProductSchema(){
   const schema = {"@context":"https://schema.org","@type":"ItemList","itemListElement":items};
   document.getElementById("productSchema").textContent = JSON.stringify(schema);
 }
+
+/* ---------------- Support chat widget ---------------- */
+let chatOpen=false, chatBusy=false, chatHistoryForHandoff=[];
+function toggleChatWidget(force){
+  chatOpen = typeof force==="boolean" ? force : !chatOpen;
+  document.getElementById("chatPanel").classList.toggle("open", chatOpen);
+  if(chatOpen && !document.getElementById("chatBody").children.length){
+    addChatMessage("bot","Namaste 🙏 I'm here to help with products, orders and policies. How can I assist you?");
+  }
+  if(chatOpen) document.getElementById("chatInput").focus();
+}
+function addChatMessage(role,text){
+  const body=document.getElementById("chatBody");
+  const div=document.createElement("div");
+  div.className="cmsg "+role;
+  div.textContent=text;
+  body.appendChild(div);
+  body.scrollTop=body.scrollHeight;
+  if(role==="user"||role==="bot") chatHistoryForHandoff.push(`${role==="user"?"Me":"Bot"}: ${text}`);
+}
+function updateChatWaLink(){
+  const summary = chatHistoryForHandoff.slice(-6).join("\n");
+  const msg = `Namaste 🙏 I was chatting with the support bot on the site and need help.\n\n${summary}`;
+  document.getElementById("chatWaLink").href = `https://wa.me/${CONFIG.WHATSAPP}?text=${encodeURIComponent(msg)}`;
+}
+async function sendChatMessage(){
+  const input=document.getElementById("chatInput");
+  const text=input.value.trim();
+  if(!text||chatBusy) return;
+  input.value="";
+  addChatMessage("user",text);
+  chatBusy=true;
+  document.getElementById("chatSendBtn").disabled=true;
+  const body=document.getElementById("chatBody");
+  const typing=document.createElement("div");
+  typing.className="cmsg typing"; typing.textContent="Typing…";
+  body.appendChild(typing); body.scrollTop=body.scrollHeight;
+  try{
+    const res=await fetch("/api/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session_id:SESSION_ID, message:text})
+    });
+    typing.remove();
+    if(!res.ok) throw new Error("chat failed");
+    const data=await res.json();
+    addChatMessage("bot",data.reply);
+    updateChatWaLink();
+    if(data.escalate) document.querySelector(".chat-human").style.background="#FDEFD9";
+  }catch(e){
+    typing.remove();
+    addChatMessage("bot","Sorry, I couldn't reach our assistant just now — please use the WhatsApp link below and we'll help directly.");
+    updateChatWaLink();
+  }
+  chatBusy=false;
+  document.getElementById("chatSendBtn").disabled=false;
+}
+document.getElementById("chatSendBtn").addEventListener("click",sendChatMessage);
+document.getElementById("chatInput").addEventListener("keydown", e => { if(e.key==="Enter") sendChatMessage(); });
 
 /* ---------------- Mobile menu & back-to-top ---------------- */
 function toggleMenu(force){
@@ -1369,7 +1468,7 @@ applyContactConfig(); renderProductSchema(); trackEvent("view");
 renderFilters(); renderProducts(); renderRite(); renderTesti(); renderFaq(); renderMarquee(); renderRashiGrid(); makeEmbers(); updateCart(); observeReveals();
 window.addEventListener("load",()=>setTimeout(()=>document.getElementById("preloader").classList.add("done"),650));
 setTimeout(()=>document.getElementById("preloader").classList.add("done"),2500); /* safety */
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleCart(false);closeCheckout();closeQuickView();}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleCart(false);closeCheckout();closeQuickView();toggleChatWidget(false);}});
 </script>
 </body>
 </html>

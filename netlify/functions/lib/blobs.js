@@ -14,5 +14,6 @@ function storeOptions(name) {
 
 const getOrdersStore = () => getStore(storeOptions("orders"));
 const getSessionsStore = () => getStore(storeOptions("sessions"));
+const getSupportStore = () => getStore(storeOptions("support"));
 
-module.exports = { getOrdersStore, getSessionsStore };
+module.exports = { getOrdersStore, getSessionsStore, getSupportStore };

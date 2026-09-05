@@ -2,6 +2,7 @@
   "name": "shri-om-tattva",
   "private": true,
   "dependencies": {
-    "@netlify/blobs": "^8"
+    "@netlify/blobs": "^8",
+    "@anthropic-ai/sdk": "^0.124"
   }
 }
