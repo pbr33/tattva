@@ -650,6 +650,12 @@ header.scrolled .menu-btn{color:var(--ink)}
       partner; we do not store your card, UPI or netbanking credentials on
       our own systems. Order details may be shared with our courier partner
       solely for delivery purposes.</p>
+      <p>We also keep a first-party record of on-site activity — a randomly
+      generated session identifier (not linked to your name unless you go on
+      to place an order), which products were viewed and added to your
+      basket, and whether a visit resulted in an order — to help us
+      understand and improve the shopping experience. We do not use
+      third-party advertising or tracking cookies.</p>
       <p>For any privacy questions or to request deletion of your data,
       contact us using the email address in the footer below.</p>
     </details>
@@ -853,6 +859,28 @@ function saveCart(){
 }
 let cart = loadCart();    // id -> qty, persisted to localStorage
 let activeFilter = "All";
+
+/* ---------------- Activity tracking (first-party, no third-party analytics) ---------------- */
+function getSessionId(){
+  try{
+    let id = localStorage.getItem("sot_session");
+    if(!id){
+      id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36)+Math.random().toString(36).slice(2)));
+      localStorage.setItem("sot_session", id);
+    }
+    return id;
+  }catch(e){ return "anon-"+Date.now(); }
+}
+const SESSION_ID = getSessionId();
+function trackEvent(type, productId){
+  try{
+    fetch("/api/track-event",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session_id:SESSION_ID, type, product_id:productId})
+    }).catch(()=>{});
+  }catch(e){}
+}
 const fmt = n => "₹" + n.toLocaleString("en-IN");
 
 /* ---------------- Render: filters & products ---------------- */
@@ -951,6 +979,7 @@ function addToCart(id){
   const cc=document.getElementById("cartCount");
   cc.classList.remove("pop");void cc.offsetWidth;cc.classList.add("pop");
   updateCart(); toast("Added to your basket 🙏");
+  trackEvent("add_to_cart", id);
 }
 function changeQty(id,d){
   if(d>0 && (cart[id]||0)>=MAX_QTY_PER_ITEM){ toast(`Maximum ${MAX_QTY_PER_ITEM} per item`); return; }
@@ -1014,6 +1043,7 @@ function toggleCart(open){
 /* ---------------- Quick view ---------------- */
 function openQuickView(id){
   const p=PRODUCTS.find(x=>x.id===id);
+  trackEvent("product_view", id);
   document.getElementById("qvBody").innerHTML=`
     <div class="qv-grid">
       <img src="data:image/jpeg;base64,${p.img}" alt="${p.name}">
@@ -1039,6 +1069,7 @@ function openCheckout(){
   toggleCart(false);
   renderCheckoutForm();
   document.getElementById("checkoutModal").classList.add("open");
+  trackEvent("checkout_start");
 }
 function closeCheckout(){document.getElementById("checkoutModal").classList.remove("open");}
 
@@ -1111,8 +1142,18 @@ function setPayBtnBusy(busy,label){
   if(label) b.textContent=label;
 }
 
+function logWhatsAppOrder(f,oid){
+  const items=Object.keys(cart).map(id=>({id,qty:cart[id]}));
+  fetch("/api/log-order",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({oid,items,customer:f,session_id:SESSION_ID})
+  }).catch(()=>{});
+}
+
 function fallbackToWhatsApp(f,oid,reason){
   toast(reason+" — sending order via WhatsApp instead");
+  logWhatsAppOrder(f,oid);
   window.open(`https://wa.me/${CONFIG.WHATSAPP}?text=${orderText(f,oid)}`,"_blank");
   showSuccess(oid,"Your order has been sent to the Mandir on WhatsApp. We will confirm and share UPI payment details shortly.");
 }
@@ -1121,6 +1162,7 @@ async function placeOrder(){
   const f=getForm(); if(!f) return;
   const oid=orderId();
   if(payMethod==="whatsapp"){
+    logWhatsAppOrder(f,oid);
     window.open(`https://wa.me/${CONFIG.WHATSAPP}?text=${orderText(f,oid)}`,"_blank");
     showSuccess(oid,"Your order has been sent to the Mandir on WhatsApp. We will confirm and share UPI payment details shortly.");
     return;
@@ -1137,7 +1179,7 @@ async function placeOrder(){
     const res=await fetch("/api/create-order",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({items,receipt:oid})
+      body:JSON.stringify({items,receipt:oid,customer:f,session_id:SESSION_ID})
     });
     if(!res.ok) throw new Error("create-order failed");
     order=await res.json();
@@ -1167,7 +1209,8 @@ async function placeOrder(){
           body:JSON.stringify({
             razorpay_order_id:resp.razorpay_order_id,
             razorpay_payment_id:resp.razorpay_payment_id,
-            razorpay_signature:resp.razorpay_signature
+            razorpay_signature:resp.razorpay_signature,
+            oid, session_id:SESSION_ID
           })
         });
         const vdata=await vres.json();
@@ -1322,7 +1365,7 @@ window.addEventListener("scroll",()=>{
 
 /* ---------------- Init ---------------- */
 document.getElementById("yr").textContent=new Date().getFullYear();
-applyContactConfig(); renderProductSchema();
+applyContactConfig(); renderProductSchema(); trackEvent("view");
 renderFilters(); renderProducts(); renderRite(); renderTesti(); renderFaq(); renderMarquee(); renderRashiGrid(); makeEmbers(); updateCart(); observeReveals();
 window.addEventListener("load",()=>setTimeout(()=>document.getElementById("preloader").classList.add("done"),650));
 setTimeout(()=>document.getElementById("preloader").classList.add("done"),2500); /* safety */

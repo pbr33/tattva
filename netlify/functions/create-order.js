@@ -1,4 +1,5 @@
 const { computeAmountPaise } = require("./lib/pricing");
+const { getOrdersStore } = require("./lib/blobs");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -56,5 +57,30 @@ exports.handler = async (event) => {
   }
 
   const order = await rzpRes.json();
+
+  // Persist the order intent now (status "created") so it's tracked even if
+  // the customer abandons before paying — verify-payment.js flips this to
+  // "paid" once the signature checks out. Never blocks the payment flow if
+  // this write fails for some reason.
+  try {
+    const now = new Date().toISOString();
+    await getOrdersStore().setJSON(receipt, {
+      oid: receipt,
+      razorpay_order_id: order.id,
+      payment_id: null,
+      method: "razorpay",
+      items: payload.items,
+      customer: payload.customer || null,
+      amount: order.amount,
+      currency: order.currency,
+      status: "created",
+      status_history: [{ status: "created", note: "Razorpay order created, awaiting payment", ts: now }],
+      created_at: now,
+      updated_at: now
+    });
+  } catch {
+    // tracking is best-effort; payment integrity does not depend on it
+  }
+
   return json(200, { order_id: order.id, amount: order.amount, currency: order.currency, receipt });
 };

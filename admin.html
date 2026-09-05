@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Admin — Shri Om Tattva</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="/om-logo.png">
+<style>
+:root{
+  --kumkum:#B3251E; --kumkum-deep:#7E120D; --gold:#C9971C; --gold-pale:#F3D98F;
+  --ivory:#FBF6EC; --ivory-2:#F4EBD8; --ink:#1B110C; --ink-soft:#5C4A3D;
+  --white:#FFFDF8; --ok:#2E7D32; --warn:#B3251E; --line:#E5D9C3;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Alegreya Sans',sans-serif;background:var(--ivory);color:var(--ink);font-size:15px;line-height:1.5}
+h1,h2{font-family:'Rozha One',serif;font-weight:400}
+button{font-family:inherit;cursor:pointer;border:none}
+input,select,textarea{font-family:inherit;font-size:.95rem}
+
+/* ---- Login ---- */
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1rem}
+.login-card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:2.4rem;max-width:22rem;width:100%;box-shadow:0 10px 30px rgba(126,18,13,.10)}
+.login-card h1{font-size:1.5rem;color:var(--kumkum-deep);margin-bottom:.3rem}
+.login-card p{color:var(--ink-soft);font-size:.9rem;margin-bottom:1.4rem}
+.login-card input{width:100%;padding:.75rem .9rem;border:1px solid var(--line);border-radius:8px;margin-bottom:.9rem}
+.login-card button{width:100%;padding:.8rem;background:var(--kumkum);color:var(--white);border-radius:8px;font-weight:700}
+.login-card button:hover{background:var(--kumkum-deep)}
+.login-err{color:var(--warn);font-size:.85rem;margin-bottom:.8rem;display:none}
+
+/* ---- Dashboard ---- */
+#dash{display:none}
+header.topbar{background:var(--ink);color:var(--ivory);padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between}
+header.topbar h1{font-size:1.25rem;color:var(--gold-pale)}
+header.topbar button{background:transparent;color:var(--ivory);border:1px solid rgba(255,255,255,.3);padding:.4rem .9rem;border-radius:999px;font-size:.85rem}
+header.topbar button:hover{background:rgba(255,255,255,.1)}
+main{max-width:1200px;margin:0 auto;padding:1.5rem}
+section{margin-bottom:2.2rem}
+section h2{font-size:1.15rem;color:var(--kumkum-deep);margin-bottom:.8rem}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.9rem}
+.stat{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:1rem 1.2rem}
+.stat .n{font-family:'Rozha One',serif;font-size:1.8rem;color:var(--kumkum)}
+.stat .l{font-size:.8rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em}
+
+.table-wrap{overflow-x:auto;background:var(--white);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:.88rem;min-width:760px}
+th,td{padding:.6rem .8rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--ivory-2);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft)}
+tr:last-child td{border-bottom:none}
+.badge{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-size:.75rem;font-weight:700}
+.b-created,.b-whatsapp_pending{background:#FCE9C9;color:#8A5A00}
+.b-paid{background:#DCEFDD;color:var(--ok)}
+.b-processing{background:#DCE6FB;color:#1F4FA0}
+.b-shipped{background:#E1DCFB;color:#4A2FA0}
+.b-delivered{background:#DCEFDD;color:var(--ok)}
+.b-cancelled,.b-return_requested,.b-replacement_requested{background:#FBDCDC;color:var(--warn)}
+.b-return_approved,.b-replacement_shipped{background:#FBEEDC;color:#A05A1F}
+.b-refunded{background:#E7E7E7;color:#444}
+.row-actions{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-top:.4rem}
+.row-actions select{padding:.3rem .5rem;border:1px solid var(--line);border-radius:6px}
+.row-actions input[type=text]{padding:.3rem .5rem;border:1px solid var(--line);border-radius:6px;width:11rem}
+.row-actions button{background:var(--kumkum);color:var(--white);padding:.35rem .8rem;border-radius:6px;font-size:.82rem}
+.row-actions button:hover{background:var(--kumkum-deep)}
+.muted{color:var(--ink-soft);font-size:.8rem}
+.items-list{font-size:.82rem;color:var(--ink-soft)}
+.hist{font-size:.78rem;color:var(--ink-soft);margin-top:.3rem}
+.hist div{margin-bottom:.15rem}
+.empty{padding:2rem;text-align:center;color:var(--ink-soft)}
+.toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--ivory);padding:.7rem 1.3rem;border-radius:999px;font-size:.88rem;opacity:0;pointer-events:none;transition:all .3s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>🕉 Admin</h1>
+    <p>Shri Om Tattva — sign in to manage orders and view activity.</p>
+    <div class="login-err" id="loginErr">Incorrect password</div>
+    <input type="password" id="loginPass" placeholder="Admin password" autocomplete="current-password">
+    <button id="loginBtn">Sign In</button>
+  </div>
+</div>
+
+<div id="dash">
+  <header class="topbar">
+    <h1>ॐ Shri Om Tattva — Admin</h1>
+    <button id="logoutBtn">Log out</button>
+  </header>
+  <main>
+    <section>
+      <h2>Overview</h2>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <section>
+      <h2>Orders</h2>
+      <div class="table-wrap">
+        <table id="ordersTable">
+          <thead><tr>
+            <th>Order</th><th>Customer</th><th>Items</th><th>Amount</th>
+            <th>Method</th><th>Status</th><th>Update</th>
+          </tr></thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Visitor Activity</h2>
+      <div class="table-wrap">
+        <table id="sessionsTable">
+          <thead><tr>
+            <th>Session</th><th>First seen</th><th>Last seen</th>
+            <th>Viewed</th><th>Added to cart</th><th>Converted</th>
+          </tr></thead>
+          <tbody id="sessionsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STATUS_LABEL = {
+  created:"Order Created", whatsapp_pending:"WhatsApp — Pending",
+  paid:"Paid", processing:"Processing", shipped:"Shipped", delivered:"Delivered",
+  cancelled:"Cancelled", return_requested:"Return Requested", return_approved:"Return Approved",
+  refunded:"Refunded", replacement_requested:"Replacement Requested", replacement_shipped:"Replacement Shipped"
+};
+const STATUS_OPTIONS = Object.keys(STATUS_LABEL);
+const fmt = n => "₹" + Number(n||0).toLocaleString("en-IN");
+
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"), 2200);
+}
+
+async function api(path, opts){
+  const res = await fetch(path, { credentials: "same-origin", headers: {"Content-Type":"application/json"}, ...opts });
+  return res;
+}
+
+function showDash(){ document.getElementById("loginScreen").style.display="none"; document.getElementById("dash").style.display="block"; }
+function showLogin(){ document.getElementById("loginScreen").style.display="flex"; document.getElementById("dash").style.display="none"; }
+
+document.getElementById("loginBtn").onclick = async () => {
+  const pass = document.getElementById("loginPass").value;
+  const res = await api("/api/admin-login", { method:"POST", body: JSON.stringify({ password: pass }) });
+  if(res.ok){ document.getElementById("loginErr").style.display="none"; showDash(); loadAll(); }
+  else { document.getElementById("loginErr").style.display="block"; }
+};
+document.getElementById("loginPass").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginBtn").click(); });
+
+document.getElementById("logoutBtn").onclick = async () => {
+  await api("/api/admin-logout", { method:"POST" });
+  showLogin();
+};
+
+async function loadAll(){
+  const [ordersRes, sessionsRes] = await Promise.all([ api("/api/admin-orders"), api("/api/admin-sessions") ]);
+  if(!ordersRes.ok || !sessionsRes.ok){ showLogin(); return; }
+  const { orders } = await ordersRes.json();
+  const { sessions } = await sessionsRes.json();
+  renderStats(orders, sessions);
+  renderOrders(orders);
+  renderSessions(sessions, orders);
+}
+
+function renderStats(orders, sessions){
+  const totalSessions = sessions.length;
+  const addedToCart = sessions.filter(s => s.events.some(e => e.type==="add_to_cart")).length;
+  const converted = sessions.filter(s => s.converted_order_id).length;
+  const paidOrders = orders.filter(o => ["paid","processing","shipped","delivered"].includes(o.status));
+  const revenue = paidOrders.reduce((sum,o) => sum + (o.amount||0), 0) / 100;
+  const rate = totalSessions ? Math.round(converted/totalSessions*100) : 0;
+
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><div class="n">${totalSessions}</div><div class="l">Visitor Sessions</div></div>
+    <div class="stat"><div class="n">${addedToCart}</div><div class="l">Added to Basket</div></div>
+    <div class="stat"><div class="n">${orders.length}</div><div class="l">Total Orders</div></div>
+    <div class="stat"><div class="n">${rate}%</div><div class="l">Conversion Rate</div></div>
+    <div class="stat"><div class="n">${fmt(revenue)}</div><div class="l">Paid Revenue</div></div>
+  `;
+}
+
+function renderOrders(orders){
+  const body = document.getElementById("ordersBody");
+  if(!orders.length){ body.innerHTML = `<tr><td colspan="7" class="empty">No orders yet</td></tr>`; return; }
+
+  body.innerHTML = orders.map(o => {
+    const itemsText = (o.items||[]).map(it => `${it.id||it.name} × ${it.qty}`).join(", ");
+    const custName = o.customer ? o.customer.name : "—";
+    const custPhone = o.customer ? o.customer.phone : "";
+    const hist = (o.status_history||[]).slice(-4).map(h =>
+      `<div>${new Date(h.ts).toLocaleString("en-IN")} — ${STATUS_LABEL[h.status]||h.status}${h.note?" · "+h.note:""}</div>`
+    ).join("");
+    const options = STATUS_OPTIONS.map(s => `<option value="${s}" ${s===o.status?"selected":""}>${STATUS_LABEL[s]}</option>`).join("");
+
+    return `<tr>
+      <td><b>${o.oid}</b><div class="muted">${new Date(o.created_at).toLocaleString("en-IN")}</div></td>
+      <td>${custName}<div class="muted">${custPhone}</div></td>
+      <td class="items-list">${itemsText}</td>
+      <td>${fmt((o.amount||0)/100)}</td>
+      <td>${o.method}</td>
+      <td><span class="badge b-${o.status}">${STATUS_LABEL[o.status]||o.status}</span><div class="hist">${hist}</div></td>
+      <td>
+        <div class="row-actions">
+          <select data-oid="${o.oid}" class="status-select">${options}</select>
+          <input type="text" class="note-input" placeholder="Note (optional)">
+          <button class="save-btn" data-oid="${o.oid}">Save</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+
+  body.querySelectorAll(".save-btn").forEach(btn => {
+    btn.onclick = async () => {
+      const oid = btn.dataset.oid;
+      const row = btn.closest("tr");
+      const status = row.querySelector(".status-select").value;
+      const note = row.querySelector(".note-input").value;
+      btn.disabled = true; btn.textContent = "Saving…";
+      const res = await api("/api/admin-update-order", { method:"POST", body: JSON.stringify({ oid, status, note }) });
+      btn.disabled = false; btn.textContent = "Save";
+      if(res.ok){ toast("Order updated"); loadAll(); }
+      else { toast("Update failed"); }
+    };
+  });
+}
+
+function renderSessions(sessions, orders){
+  const body = document.getElementById("sessionsBody");
+  if(!sessions.length){ body.innerHTML = `<tr><td colspan="6" class="empty">No visitor activity yet</td></tr>`; return; }
+
+  body.innerHTML = sessions.map(s => {
+    const viewed = [...new Set(s.events.filter(e=>e.type==="product_view").map(e=>e.product_id))];
+    const carted = [...new Set(s.events.filter(e=>e.type==="add_to_cart").map(e=>e.product_id))];
+    const converted = s.converted_order_id
+      ? `<span class="badge b-paid">${s.converted_order_id}</span>`
+      : `<span class="muted">No</span>`;
+    return `<tr>
+      <td><code>${s.session_id.slice(0,10)}…</code></td>
+      <td>${new Date(s.first_seen).toLocaleString("en-IN")}</td>
+      <td>${new Date(s.last_seen).toLocaleString("en-IN")}</td>
+      <td class="items-list">${viewed.length ? viewed.join(", ") : "—"}</td>
+      <td class="items-list">${carted.length ? carted.join(", ") : "—"}</td>
+      <td>${converted}</td>
+    </tr>`;
+  }).join("");
+}
+
+// On load, try the dashboard directly — if the session cookie is still valid
+// (from an earlier login) this skips the login screen; a 401 falls back to it.
+(async () => {
+  const res = await api("/api/admin-orders");
+  if(res.ok){ showDash(); loadAll(); } else { showLogin(); }
+})();
+</script>
+</body>
+</html>
