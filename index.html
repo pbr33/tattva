@@ -30,6 +30,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <style>
 :root{
   --kumkum:#B3251E;
@@ -92,6 +94,8 @@ header.scrolled .brand-name small{color:var(--copper)}
 header.scrolled .navlinks{color:var(--ink)}
 .navlinks a{padding:.3rem 0;border-bottom:2px solid transparent;transition:border-color .2s}
 .navlinks a:hover{border-color:var(--gold)}
+.account-btn{background:none;color:var(--ink);font-weight:700;font-size:.92rem;display:flex;align-items:center;gap:.35rem;padding:.4rem .6rem;border-radius:8px}
+.account-btn:hover{background:var(--ivory-2)}
 .cart-btn{position:relative;margin-left:.5rem;background:var(--kumkum);color:var(--ivory);padding:.55rem 1.15rem;border-radius:999px;font-weight:700;display:flex;align-items:center;gap:.5rem;box-shadow:0 4px 14px rgba(179,37,30,.35);transition:transform .2s,background .2s}
 .cart-btn:hover{background:var(--kumkum-deep);transform:translateY(-1px)}
 .cart-count{background:var(--gold);color:var(--ink);min-width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:.8rem;transition:transform .25s var(--ease)}
@@ -377,6 +381,14 @@ footer a:hover{color:var(--gold-pale);padding-left:.3rem}
 .coupon-msg{font-size:.82rem;margin-bottom:1rem;min-height:1.1em}
 .coupon-msg.ok{color:var(--ok,#2E7D32)}
 .coupon-msg.err{color:var(--kumkum)}
+.btn-outline{border:1px solid #D8C7A3;background:transparent;color:var(--ink)}
+.btn-outline:hover{background:var(--ivory-2)}
+.mo-card{background:var(--ivory-2);border-radius:11px;padding:.9rem 1.1rem;margin-bottom:.8rem;font-size:.9rem}
+.mo-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem}
+.mo-head b{font-family:'Rozha One',serif;color:var(--kumkum-deep)}
+.mo-status{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;background:var(--white);padding:.2rem .55rem;border-radius:999px}
+.mo-items{color:var(--ink-soft);font-size:.85rem;margin-bottom:.4rem}
+.mo-foot{display:flex;justify-content:space-between;font-size:.85rem;color:var(--ink-soft)}
 @media(max-width:560px){.fgrid{grid-template-columns:1fr}}
 
 /* ============ SUCCESS ============ */
@@ -479,6 +491,7 @@ header.scrolled .menu-btn{color:var(--ink)}
       <a href="#faq">FAQ</a>
     </nav>
     <button class="menu-btn" onclick="toggleMenu()" aria-label="Menu" aria-expanded="false" id="menuBtn">☰</button>
+    <button class="account-btn" id="accountBtn" onclick="openAccountModal()" aria-label="Account">👤 <span id="accountLabel">Sign In</span></button>
     <button class="cart-btn" onclick="toggleCart(true)" aria-label="Open cart">
       🛍 Cart <span class="cart-count" id="cartCount">0</span>
     </button>
@@ -831,6 +844,28 @@ header.scrolled .menu-btn{color:var(--ink)}
   </div>
 </div>
 
+<div class="modal" id="accountModal" role="dialog" aria-modal="true" aria-label="Account">
+  <div class="modal-box" style="width:min(420px,100%)">
+    <div class="modal-head">
+      <h3>🕉 My Account</h3>
+      <button onclick="closeAccountModal()" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body" id="accountBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="myOrdersModal" role="dialog" aria-modal="true" aria-label="My Orders">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>My Orders</h3>
+      <button onclick="closeMyOrders()" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body" id="myOrdersBody"></div>
+  </div>
+</div>
+
+<div id="recaptcha-container"></div>
+
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
@@ -852,6 +887,19 @@ const CONFIG = {
   // 3) Shipping
   FREE_SHIP_ABOVE: 999,
   SHIP_FLAT: 79,
+  // 4) Firebase (phone-OTP sign-in) — console.firebase.google.com → create a
+  //    project → Authentication → Sign-in method → enable Phone → Project
+  //    settings → General → add a Web app → copy this config. These values
+  //    are public/client-side by design (same trust level as RAZORPAY_KEY
+  //    above) — the real secret is FIREBASE_SERVICE_ACCOUNT, a Netlify env
+  //    var used only server-side. Also add your domain under Authentication
+  //    → Settings → Authorized domains, or sign-in will fail.
+  FIREBASE: {
+    apiKey: "PASTE_FIREBASE_API_KEY_HERE",
+    authDomain: "PASTE_FIREBASE_AUTH_DOMAIN_HERE",
+    projectId: "PASTE_FIREBASE_PROJECT_ID_HERE",
+    appId: "PASTE_FIREBASE_APP_ID_HERE"
+  },
   CURRENCY: "INR",
   THEME_COLOR: "#B3251E"
 };
@@ -1226,6 +1274,7 @@ function renderCheckoutForm(){
     <div class="secure">🔒 Payments are processed securely. Your details are used only for delivering your order.</div>`;
   payMethod="razorpay";
   renderOrderSummary();
+  prefillCheckoutFromAccount();
 }
 
 function selectPay(m){
@@ -1475,6 +1524,154 @@ function renderProductSchema(){
   document.getElementById("productSchema").textContent = JSON.stringify(schema);
 }
 
+/* ---------------- Customer account (Firebase phone-OTP) ---------------- */
+let CURRENT_CUSTOMER=null; // {phone,name,email,last_address} once signed in
+let firebaseApp=null;
+let otpConfirmation=null;
+
+function firebaseReady(){
+  return typeof firebase!=="undefined" && !CONFIG.FIREBASE.apiKey.startsWith("PASTE_");
+}
+function initFirebase(){
+  if(firebaseApp || !firebaseReady()) return;
+  firebaseApp = firebase.initializeApp(CONFIG.FIREBASE);
+}
+
+async function checkLoginState(){
+  try{
+    const res=await fetch("/api/auth-me",{credentials:"same-origin"});
+    if(res.ok){ CURRENT_CUSTOMER=await res.json(); updateAccountLabel(); }
+  }catch(e){}
+}
+function updateAccountLabel(){
+  document.getElementById("accountLabel").textContent = CURRENT_CUSTOMER ? (CURRENT_CUSTOMER.name||"Account") : "Sign In";
+}
+
+function openAccountModal(){
+  initFirebase();
+  renderAccountModal();
+  document.getElementById("accountModal").classList.add("open");
+}
+function closeAccountModal(){ document.getElementById("accountModal").classList.remove("open"); }
+
+function renderAccountModal(){
+  const body=document.getElementById("accountBody");
+  if(CURRENT_CUSTOMER){
+    body.innerHTML=`
+      <p style="margin-bottom:.2rem">Signed in as <b>${CURRENT_CUSTOMER.name||"Devotee"}</b></p>
+      <p class="muted" style="margin-bottom:1.3rem">${CURRENT_CUSTOMER.phone}</p>
+      <button class="btn btn-gold" style="width:100%;justify-content:center;margin-bottom:.6rem" onclick="closeAccountModal();openMyOrders()">📦 My Orders</button>
+      <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="signOutCustomer()">Sign Out</button>`;
+    return;
+  }
+  if(!firebaseReady()){
+    body.innerHTML=`<p class="muted">Sign-in isn't set up on this site yet. Please order via the checkout below, or reach us on WhatsApp.</p>`;
+    return;
+  }
+  body.innerHTML=`
+    <div id="acctStep1">
+      <div class="field"><label for="acct-phone">Mobile number</label><input id="acct-phone" inputmode="tel" placeholder="10-digit mobile"></div>
+      <button class="btn btn-gold" style="width:100%;justify-content:center;margin-top:.9rem" onclick="sendOtp()" id="acctSendBtn">Send OTP</button>
+      <p class="muted" style="margin-top:.9rem;font-size:.82rem">We'll text you a one-time code — no password needed.</p>
+    </div>
+    <div id="acctStep2" style="display:none">
+      <div class="field"><label for="acct-otp">Enter the 6-digit code</label><input id="acct-otp" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+      <button class="btn btn-gold" style="width:100%;justify-content:center;margin-top:.9rem" onclick="verifyOtp()" id="acctVerifyBtn">Verify &amp; Sign In</button>
+    </div>`;
+}
+
+async function sendOtp(){
+  const digits=document.getElementById("acct-phone").value.trim().replace(/\D/g,"").slice(-10);
+  if(!/^\d{10}$/.test(digits)){ toast("Enter a valid 10-digit mobile number"); return; }
+  const btn=document.getElementById("acctSendBtn");
+  btn.disabled=true; btn.textContent="Sending…";
+  try{
+    if(!window.recaptchaVerifier){
+      window.recaptchaVerifier=new firebase.auth.RecaptchaVerifier("recaptcha-container",{size:"invisible"},firebaseApp);
+    }
+    otpConfirmation=await firebase.auth().signInWithPhoneNumber("+91"+digits, window.recaptchaVerifier);
+    document.getElementById("acctStep1").style.display="none";
+    document.getElementById("acctStep2").style.display="block";
+    toast("OTP sent — check your phone");
+  }catch(e){
+    toast("Could not send OTP: "+(e.message||"please try again"));
+  }
+  btn.disabled=false; btn.textContent="Send OTP";
+}
+
+async function verifyOtp(){
+  const code=document.getElementById("acct-otp").value.trim();
+  if(!code){ toast("Enter the code sent to your phone"); return; }
+  const btn=document.getElementById("acctVerifyBtn");
+  btn.disabled=true; btn.textContent="Verifying…";
+  try{
+    const result=await otpConfirmation.confirm(code);
+    const idToken=await result.user.getIdToken();
+    const res=await fetch("/api/auth-verify",{
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id_token:idToken})
+    });
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||"Sign-in failed");
+    CURRENT_CUSTOMER={phone:data.phone,name:data.name,email:"",last_address:null};
+    updateAccountLabel();
+    closeAccountModal();
+    toast(`Welcome${data.name?", "+data.name:""}! 🙏`);
+    prefillCheckoutFromAccount();
+  }catch(e){
+    toast("Invalid code: "+(e.message||"please try again"));
+  }
+  btn.disabled=false; btn.textContent="Verify & Sign In";
+}
+
+async function signOutCustomer(){
+  try{ if(firebaseReady()) await firebase.auth().signOut(); }catch(e){}
+  await fetch("/api/auth-logout",{method:"POST",credentials:"same-origin"}).catch(()=>{});
+  CURRENT_CUSTOMER=null;
+  updateAccountLabel();
+  renderAccountModal();
+  toast("Signed out");
+}
+
+async function openMyOrders(){
+  document.getElementById("myOrdersModal").classList.add("open");
+  const body=document.getElementById("myOrdersBody");
+  body.innerHTML=`<p class="muted">Loading your orders…</p>`;
+  try{
+    const res=await fetch("/api/my-orders",{credentials:"same-origin"});
+    if(!res.ok){ body.innerHTML=`<p class="muted">Please sign in to see your orders.</p>`; return; }
+    const {orders}=await res.json();
+    if(!orders.length){ body.innerHTML=`<p class="muted">No orders yet — your first order will appear here.</p>`; return; }
+    body.innerHTML=orders.map(o=>`
+      <div class="mo-card">
+        <div class="mo-head"><b>${o.oid}</b><span class="mo-status">${STATUS_LABEL_JS[o.status]||o.status}</span></div>
+        <div class="mo-items">${(o.items||[]).map(it=>{const p=PRODUCTS.find(x=>x.id===it.id);return `${p?p.name:it.id} × ${it.qty}`;}).join(", ")}</div>
+        <div class="mo-foot"><span>${new Date(o.created_at).toLocaleDateString("en-IN")}</span><span>${fmt((o.amount||0)/100)}</span></div>
+      </div>`).join("");
+  }catch(e){
+    body.innerHTML=`<p class="muted">Could not load your orders — please try again.</p>`;
+  }
+}
+function closeMyOrders(){ document.getElementById("myOrdersModal").classList.remove("open"); }
+
+const STATUS_LABEL_JS={created:"Order Created",whatsapp_pending:"WhatsApp — Pending",paid:"Paid",processing:"Processing",shipped:"Shipped",delivered:"Delivered",cancelled:"Cancelled",return_requested:"Return Requested",return_approved:"Return Approved",refunded:"Refunded",replacement_requested:"Replacement Requested",replacement_shipped:"Replacement Shipped"};
+
+function prefillCheckoutFromAccount(){
+  if(!CURRENT_CUSTOMER) return;
+  const nameEl=document.getElementById("f-name");
+  if(!nameEl) return; // checkout isn't open
+  if(CURRENT_CUSTOMER.name) nameEl.value=CURRENT_CUSTOMER.name;
+  const phoneEl=document.getElementById("f-phone");
+  if(phoneEl && !phoneEl.value) phoneEl.value=CURRENT_CUSTOMER.phone.replace(/\D/g,"").slice(-10);
+  if(CURRENT_CUSTOMER.email) document.getElementById("f-email").value=CURRENT_CUSTOMER.email;
+  if(CURRENT_CUSTOMER.last_address){
+    document.getElementById("f-addr").value=CURRENT_CUSTOMER.last_address.addr||"";
+    document.getElementById("f-city").value=CURRENT_CUSTOMER.last_address.city||"";
+    document.getElementById("f-pin").value=CURRENT_CUSTOMER.last_address.pin||"";
+  }
+}
+
 /* ---------------- Support chat widget ---------------- */
 let chatOpen=false, chatBusy=false, chatHistoryForHandoff=[];
 function toggleChatWidget(force){
@@ -1558,11 +1755,12 @@ function showPromoBannerIfNeeded(){
 /* ---------------- Init ---------------- */
 document.getElementById("yr").textContent=new Date().getFullYear();
 showPromoBannerIfNeeded();
+checkLoginState();
 applyContactConfig(); renderProductSchema(); trackEvent("view", undefined, {referrer: document.referrer||null, utm: getUtmParams()});
 renderFilters(); renderProducts(); renderRite(); renderTesti(); renderFaq(); renderMarquee(); renderRashiGrid(); makeEmbers(); updateCart(); observeReveals();
 window.addEventListener("load",()=>setTimeout(()=>document.getElementById("preloader").classList.add("done"),650));
 setTimeout(()=>document.getElementById("preloader").classList.add("done"),2500); /* safety */
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleCart(false);closeCheckout();closeQuickView();toggleChatWidget(false);}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleCart(false);closeCheckout();closeQuickView();toggleChatWidget(false);closeAccountModal();closeMyOrders();}});
 </script>
 </body>
 </html>

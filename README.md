@@ -35,10 +35,13 @@ persistent order storage can't safely live in client-side JS alone.
     ├── log-order.js              # records WhatsApp-path orders (public)
     ├── chat.js                   # AI support chatbot (public)
     ├── validate-coupon.js        # live coupon validation for checkout (public)
+    ├── auth-verify.js / auth-logout.js / auth-me.js   # customer login (public)
+    ├── my-orders.js               # a signed-in customer's own orders (public)
     ├── admin-login.js / admin-logout.js
     ├── admin-orders.js / admin-sessions.js / admin-support.js / admin-customers.js
     ├── admin-update-order.js / admin-update-support.js / admin-create-shipment.js
     ├── admin-coupons.js / admin-save-coupon.js
+    ├── admin-financial-settings.js / admin-save-financial-settings.js
     └── lib/
         ├── pricing.js            # authoritative price table (mirrors PRODUCTS)
         ├── coupons.js             # coupon evaluation, shared by validate-coupon.js and order creation
@@ -46,7 +49,8 @@ persistent order storage can't safely live in client-side JS alone.
         ├── shiprocket.js          # Shiprocket auth + order creation
         ├── validate.js            # input validation (oid/session_id format, customer field caps)
         ├── blobs.js               # Netlify Blobs store helpers
-        └── auth.js                # admin session cookie sign/verify
+        ├── auth.js                # admin AND customer session cookie sign/verify
+        └── firebase-admin.js      # verifies Firebase phone-auth ID tokens server-side
 ```
 
 ## Local development
@@ -76,6 +80,8 @@ ANTHROPIC_API_KEY=sk-ant-...          # console.anthropic.com → Settings → A
 SHIPROCKET_EMAIL=...                  # a dedicated API user, not your main login — see below
 SHIPROCKET_PASSWORD=...
 SHIPROCKET_PICKUP_LOCATION=...        # exact pickup-address nickname from your Shiprocket dashboard
+CUSTOMER_SESSION_SECRET=a-long-random-string    # different from ADMIN_SESSION_SECRET — customer login cookie
+FIREBASE_SERVICE_ACCOUNT=...          # Firebase project → Service accounts → Generate new private key (JSON, or base64 of it) — see "Customer accounts" below
 ```
 
 The same values need to be set on the live Netlify site too —
@@ -189,6 +195,53 @@ usage data. A starter coupon (`WELCOME10` — 10% off, new customers only,
 ₹499 minimum, ₹150 max discount, one use per phone) was created through
 this same admin flow, not seeded in code.
 
+## Financials (estimated P&L)
+
+`/admin` → Financials shows Gross Revenue (paid+ orders) minus estimated
+Razorpay fees, packaging costs, shipping costs and refunds issued, down to
+an **Estimated Net Profit**. It's clearly labelled as an estimate, not exact
+accounting — two real costs aren't available automatically: Razorpay's exact
+per-transaction fee isn't queryable without extra API scope, and Shiprocket's
+real courier cost isn't known until a courier is manually assigned in their
+dashboard (this project deliberately doesn't automate that step — see
+Shipping below). Instead, set a fee % and default packaging/shipping cost in
+the Financials settings form (`admin-financial-settings.js` /
+`admin-save-financial-settings.js`, stored in Blobs), and optionally override
+packaging/shipping cost per order from the Orders tab as real costs become
+known — the P&L gets more accurate over time without ever requiring it.
+
+## Customer accounts (phone OTP login)
+
+A "Sign In" button in the header lets a customer verify their phone number
+via **Firebase Phone Auth** (`firebase-auth-compat.js`, invisible reCAPTCHA +
+real SMS OTP — Firebase handles OTP send/verify, this site never stores a
+code itself) and get a signed-in session (30-day cookie, separate from and
+independent of the admin session — see `lib/auth.js`). Signed in, checkout
+auto-fills from the saved name/email/address and a "My Orders" page
+(`my-orders.js`) lists that phone number's past orders. Checkout itself stays
+**guest-friendly** — login is never required to buy — and after any
+successful order (Razorpay or WhatsApp path) the account's saved details are
+refreshed from that order automatically.
+
+Coupon logic is intentionally unaffected by accounts: "new customer" coupons
+already worked before login existed, and still work the same way — checked
+against paid-order history by phone number (`lib/coupons.js`) — since phone
+is the one identity every order already carries, logged in or not.
+
+**Setup required before this works (not yet done automatically):**
+1. [console.firebase.google.com](https://console.firebase.google.com) →
+   create a project → **Authentication** → Sign-in method → enable **Phone**.
+2. Project settings → General → add a **Web app** → copy the config object
+   (`apiKey`, `authDomain`, `projectId`, `appId`) into `index.html`'s
+   `CONFIG.FIREBASE` (search for `PASTE_FIREBASE`). These are public,
+   client-side-safe values — same trust level as `CONFIG.RAZORPAY_KEY`.
+3. Project settings → **Service accounts** → Generate new private key (JSON)
+   → set it as the `FIREBASE_SERVICE_ACCOUNT` env var (the actual secret —
+   server-side only, verifies ID tokens in `lib/firebase-admin.js`).
+4. Authentication → Settings → **Authorized domains** → add your real domain
+   (and the `*.netlify.app` preview domain for testing) — phone auth silently
+   fails from an unauthorized domain.
+
 ## Shipping (Shiprocket)
 
 Once a Razorpay payment is verified, `verify-payment.js` automatically
@@ -264,8 +317,7 @@ of value:
 5. **Analytics** — first-party funnel tracking (views/cart/conversion) now
    exists in `/admin`; a full analytics tool (Plausible/GA4) would still add
    things like traffic sources and device/geo breakdowns if you want them.
-6. **Customer-facing order tracking / return requests** — returns and
-   cancellations are currently admin-managed only (customer messages via
-   WhatsApp, admin updates status in `/admin`). A self-service "track my
-   order" page (Order ID + phone lookup) would reduce manual back-and-forth
-   as order volume grows.
+6. ~~Customer-facing order tracking~~ — done: phone-OTP login + "My Orders"
+   (see Customer accounts above) lets a signed-in customer see their own
+   order history and status. Self-service **return/cancellation requests**
+   (vs. today's WhatsApp-to-admin flow) are still a natural next step.

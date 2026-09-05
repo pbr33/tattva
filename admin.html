@@ -65,6 +65,7 @@ section h2{font-size:1.15rem;color:var(--kumkum-deep);margin-bottom:.8rem}
 .coupon-form input[type=text]{width:11rem}
 .coupon-form input[type=number]{width:8rem}
 .coupon-form .cf-check{display:flex;align-items:center;gap:.4rem;font-size:.85rem}
+.coupon-form label{display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--ink-soft)}
 .coupon-form button{background:var(--kumkum);color:var(--white);padding:.55rem 1.1rem;border-radius:8px;font-size:.85rem}
 .coupon-form button:hover{background:var(--kumkum-deep)}
 .toggle-btn{padding:.25rem .6rem;border-radius:6px;font-size:.75rem;background:var(--ivory-2);color:var(--ink)}
@@ -139,6 +140,18 @@ tr:last-child td{border-bottom:none}
       <h2>Overview</h2>
       <div class="stats" id="stats"></div>
       <div class="breakdowns" id="breakdowns"></div>
+    </section>
+
+    <section>
+      <h2>Financials</h2>
+      <p class="muted" style="margin-bottom:.8rem">Estimated — Razorpay's exact per-transaction fee and Shiprocket's real courier cost aren't available automatically (courier assignment is a manual step in Shiprocket's own dashboard). Set your best estimates below; override per-order once real costs are known.</p>
+      <div class="coupon-form" id="finSettingsForm">
+        <label>Razorpay fee % <input type="number" id="fs-fee" step="0.1" min="0" style="width:5rem"></label>
+        <label>Default packaging cost ₹ <input type="number" id="fs-pack" min="0" style="width:6rem"></label>
+        <label>Default shipping cost ₹ <input type="number" id="fs-ship" min="0" style="width:6rem"></label>
+        <button id="fs-save">Save Settings</button>
+      </div>
+      <div class="breakdown" id="pnlSummary" style="max-width:26rem"></div>
     </section>
 
     <section>
@@ -252,6 +265,7 @@ const esc = v => String(v==null?"":v).replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 let ALL_ORDERS = [];
 let ALL_CUSTOMERS = [];
 let ALL_COUPONS = [];
+let FIN_SETTINGS = { razorpay_fee_pct: 2, default_packaging_cost: 15, default_shipping_cost: 45 };
 
 function toast(msg){
   const t = document.getElementById("toast");
@@ -295,8 +309,8 @@ document.getElementById("customerSearch").addEventListener("input", () => render
 document.getElementById("exportBtn").onclick = exportCsv;
 
 async function loadAll(){
-  const [ordersRes, sessionsRes, supportRes, customersRes, couponsRes] = await Promise.all([
-    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers"), api("/api/admin-coupons")
+  const [ordersRes, sessionsRes, supportRes, customersRes, couponsRes, finRes] = await Promise.all([
+    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers"), api("/api/admin-coupons"), api("/api/admin-financial-settings")
   ]);
   if(ordersRes.status===401 || sessionsRes.status===401){ showLogin(); return; }
   if(!ordersRes.ok || !sessionsRes.ok){ toast("Could not load some data — check your connection and try again"); return; }
@@ -312,9 +326,52 @@ async function loadAll(){
   renderSupport(conversations);
   renderCustomers(ALL_CUSTOMERS);
   if(couponsRes.ok){ const { coupons } = await couponsRes.json(); ALL_COUPONS = coupons; renderCoupons(coupons); }
+  if(finRes.ok){ const { settings } = await finRes.json(); FIN_SETTINGS = settings; fillFinSettingsForm(settings); renderPnL(orders, settings); }
 }
 
 const PAID_STATUSES = ["paid","processing","shipped","delivered"];
+
+function fillFinSettingsForm(s){
+  document.getElementById("fs-fee").value = s.razorpay_fee_pct;
+  document.getElementById("fs-pack").value = s.default_packaging_cost;
+  document.getElementById("fs-ship").value = s.default_shipping_cost;
+}
+
+function renderPnL(orders, settings){
+  const paid = orders.filter(o => PAID_STATUSES.includes(o.status));
+  const revenue = paid.reduce((s,o) => s + (o.amount||0), 0);
+  const razorpayFees = paid
+    .filter(o => o.method==="razorpay")
+    .reduce((s,o) => s + Math.round((o.amount||0) * settings.razorpay_fee_pct/100), 0);
+  const packaging = paid.reduce((s,o) => s + (o.packaging_cost!=null ? o.packaging_cost : settings.default_packaging_cost*100), 0);
+  const shipping = paid.reduce((s,o) => s + (o.shipping_cost!=null ? o.shipping_cost : settings.default_shipping_cost*100), 0);
+  const refunds = orders.filter(o => o.status==="refunded").reduce((s,o) => s + (o.refund_amount||0), 0);
+  const discounts = orders.filter(o => o.coupon).reduce((s,o) => s + (o.coupon.discount_amount||0), 0);
+  const netProfit = revenue - razorpayFees - packaging - shipping - refunds;
+
+  document.getElementById("pnlSummary").innerHTML = `
+    <h3>Estimated Profit &amp; Loss (${paid.length} paid+ orders)</h3>
+    <div class="row"><span>Gross Revenue</span><b>${fmt(revenue/100)}</b></div>
+    <div class="row"><span>− Razorpay fees (est.)</span><b>${fmt(razorpayFees/100)}</b></div>
+    <div class="row"><span>− Packaging costs</span><b>${fmt(packaging/100)}</b></div>
+    <div class="row"><span>− Shipping costs</span><b>${fmt(shipping/100)}</b></div>
+    <div class="row"><span>− Refunds issued</span><b>${fmt(refunds/100)}</b></div>
+    <div class="row" style="border-top:1px solid var(--line);padding-top:.4rem;margin-top:.2rem"><span><b>Estimated Net Profit</b></span><b style="color:${netProfit>=0?'var(--ok,#2E7D32)':'var(--warn)'}">${fmt(netProfit/100)}</b></div>
+    <div class="row muted" style="font-size:.78rem"><span>Coupon discounts given (already reflected in revenue above)</span><span>${fmt(discounts/100)}</span></div>
+  `;
+}
+
+document.getElementById("fs-save").onclick = async () => {
+  const btn = document.getElementById("fs-save");
+  btn.disabled = true; btn.textContent = "Saving…";
+  const res = await api("/api/admin-save-financial-settings", { method:"POST", body: JSON.stringify({
+    razorpay_fee_pct: document.getElementById("fs-fee").value,
+    default_packaging_cost: document.getElementById("fs-pack").value,
+    default_shipping_cost: document.getElementById("fs-ship").value
+  })});
+  btn.disabled = false; btn.textContent = "Save Settings";
+  if(res.ok){ toast("Financial settings saved"); loadAll(); } else { toast("Could not save settings"); }
+};
 
 function lastCheckoutEvent(session){
   for(let i=session.events.length-1;i>=0;i--){
@@ -467,6 +524,8 @@ function renderOrders(orders){
           <input type="text" class="courier-input" placeholder="Courier" value="${esc(o.courier||"")}">
           <input type="text" class="tracking-input" placeholder="Tracking #" value="${esc(o.tracking_number||"")}">
           <input type="number" class="refund-input" placeholder="Refund ₹" style="display:${o.status==='refunded'?'inline-block':'none'}" value="${o.refund_amount?(o.refund_amount/100):''}">
+          <input type="number" class="packaging-input" placeholder="Packaging ₹" value="${o.packaging_cost?(o.packaging_cost/100):''}">
+          <input type="number" class="shippingcost-input" placeholder="Shipping cost ₹" value="${o.shipping_cost?(o.shipping_cost/100):''}">
         </div>
       </td>
     </tr>`;
@@ -488,8 +547,10 @@ function renderOrders(orders){
       const courier = row.querySelector(".courier-input").value;
       const tracking_number = row.querySelector(".tracking-input").value;
       const refund_amount = row.querySelector(".refund-input").value;
+      const packaging_cost = row.querySelector(".packaging-input").value;
+      const shipping_cost = row.querySelector(".shippingcost-input").value;
       btn.disabled = true; btn.textContent = "Saving…";
-      const res = await api("/api/admin-update-order", { method:"POST", body: JSON.stringify({ oid, status, note, courier, tracking_number, refund_amount: refund_amount||undefined }) });
+      const res = await api("/api/admin-update-order", { method:"POST", body: JSON.stringify({ oid, status, note, courier, tracking_number, refund_amount: refund_amount||undefined, packaging_cost: packaging_cost||undefined, shipping_cost: shipping_cost||undefined }) });
       btn.disabled = false; btn.textContent = "Save";
       if(res.ok){ toast("Order updated"); loadAll(); }
       else { toast("Update failed"); }

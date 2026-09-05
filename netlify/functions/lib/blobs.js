@@ -17,5 +17,6 @@ const getSessionsStore = () => getStore(storeOptions("sessions"));
 const getSupportStore = () => getStore(storeOptions("support"));
 const getMiscStore = () => getStore(storeOptions("misc")); // small system-level values (e.g. cached third-party tokens)
 const getCouponsStore = () => getStore(storeOptions("coupons"));
+const getCustomersStore = () => getStore(storeOptions("customers"));
 
-module.exports = { getOrdersStore, getSessionsStore, getSupportStore, getMiscStore, getCouponsStore };
+module.exports = { getOrdersStore, getSessionsStore, getSupportStore, getMiscStore, getCouponsStore, getCustomersStore };

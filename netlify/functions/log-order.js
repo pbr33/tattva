@@ -1,7 +1,28 @@
-const { getOrdersStore, getSessionsStore } = require("./lib/blobs");
+const { getOrdersStore, getSessionsStore, getCustomersStore } = require("./lib/blobs");
 const { computeBreakdown } = require("./lib/pricing");
 const { isValidOid, isValidSessionId, sanitizeCustomer, hasRequiredCustomerFields } = require("./lib/validate");
 const { evaluateCoupon, recordCouponUsage, normalizeCode } = require("./lib/coupons");
+const { getCustomerFromSession } = require("./lib/auth");
+
+// If this order was placed while signed in, save the freshest name/email/
+// address to the account — so checkout keeps auto-filling more accurately
+// over time. Best-effort: never blocks order processing if it fails.
+async function updateCustomerProfile(event, order) {
+  try {
+    const sessionPhone = getCustomerFromSession(event);
+    if (!sessionPhone || !order.customer) return;
+    const store = getCustomersStore();
+    const customer = await store.get(sessionPhone, { type: "json" });
+    if (!customer) return;
+    customer.name = order.customer.name || customer.name;
+    customer.email = order.customer.email || customer.email;
+    customer.last_address = { addr: order.customer.addr, city: order.customer.city, pin: order.customer.pin };
+    customer.updated_at = new Date().toISOString();
+    await store.setJSON(sessionPhone, customer);
+  } catch {
+    // best-effort
+  }
+}
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -65,6 +86,7 @@ exports.handler = async (event) => {
 
   const store = getOrdersStore();
   await store.setJSON(oid, order);
+  await updateCustomerProfile(event, order);
 
   if (appliedCoupon) {
     try { await recordCouponUsage(appliedCoupon.code, customer.phone); } catch { /* best-effort */ }

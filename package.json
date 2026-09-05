@@ -2,7 +2,8 @@
   "name": "shri-om-tattva",
   "private": true,
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124",
     "@netlify/blobs": "^8",
-    "@anthropic-ai/sdk": "^0.124"
+    "firebase-admin": "^14.3.0"
   }
 }

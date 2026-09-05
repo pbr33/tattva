@@ -33,7 +33,7 @@ exports.handler = async (event) => {
     return json(400, { error: "Invalid JSON body" });
   }
 
-  const { oid, status, note, tracking_number, courier, refund_amount } = payload;
+  const { oid, status, note, tracking_number, courier, refund_amount, packaging_cost, shipping_cost } = payload;
   if (typeof oid !== "string" || !oid) return json(400, { error: "Missing oid" });
   if (!ALLOWED_STATUSES.has(status)) return json(400, { error: "Invalid status" });
 
@@ -60,6 +60,16 @@ exports.handler = async (event) => {
     if (!Number.isFinite(amt) || amt < 0) return json(400, { error: "Invalid refund_amount" });
     doc.refund_amount = Math.round(amt * 100); // stored in paise, same unit as `amount`
     noteParts.push(`Refund amount: ₹${amt}`);
+  }
+  if (packaging_cost !== undefined && packaging_cost !== null && packaging_cost !== "") {
+    const amt = Number(packaging_cost);
+    if (!Number.isFinite(amt) || amt < 0) return json(400, { error: "Invalid packaging_cost" });
+    doc.packaging_cost = Math.round(amt * 100); // paise
+  }
+  if (shipping_cost !== undefined && shipping_cost !== null && shipping_cost !== "") {
+    const amt = Number(shipping_cost);
+    if (!Number.isFinite(amt) || amt < 0) return json(400, { error: "Invalid shipping_cost" });
+    doc.shipping_cost = Math.round(amt * 100); // paise
   }
 
   doc.status_history.push({ status, note: noteParts.length ? noteParts.join(" · ") : undefined, ts: now });
