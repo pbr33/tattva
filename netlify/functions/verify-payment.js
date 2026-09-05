@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { getOrdersStore, getSessionsStore } = require("./lib/blobs");
 const { createShipment } = require("./lib/shiprocket");
+const { recordCouponUsage } = require("./lib/coupons");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -57,6 +58,13 @@ exports.handler = async (event) => {
         doc.status = "paid";
         doc.status_history.push({ status: "paid", note: "Payment verified", ts: now });
         doc.updated_at = now;
+
+        // Only record coupon usage once payment is actually confirmed —
+        // never at order-creation time — so an abandoned cart never
+        // consumes a limited-use code.
+        if (doc.coupon && doc.customer && doc.customer.phone) {
+          try { await recordCouponUsage(doc.coupon.code, doc.customer.phone); } catch { /* best-effort */ }
+        }
 
         // Auto-create the Shiprocket order now that payment is confirmed.
         // This only creates the order (free) — assigning a courier/AWB and

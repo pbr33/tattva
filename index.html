@@ -71,6 +71,12 @@ a{color:inherit;text-decoration:none}
 .topbar{background:var(--kumkum-deep);color:var(--ivory);text-align:center;font-size:.85rem;letter-spacing:.06em;padding:.45rem 1rem;position:relative;z-index:70}
 .topbar b{color:var(--gold-pale)}
 
+.promo-banner{background:linear-gradient(90deg,var(--gold),var(--kumkum));color:var(--ivory);text-align:center;font-size:.88rem;padding:.6rem 2.4rem .6rem 1rem;position:relative;z-index:69;display:flex;align-items:center;justify-content:center;gap:.4rem;flex-wrap:wrap}
+.promo-banner b{background:rgba(255,255,255,.22);padding:.1rem .5rem;border-radius:5px;letter-spacing:.03em}
+.promo-banner button{position:absolute;right:.6rem;top:50%;transform:translateY(-50%);background:none;color:var(--ivory);font-size:1.2rem;line-height:1;opacity:.8;padding:.2rem .4rem}
+.promo-banner button:hover{opacity:1}
+.promo-banner[hidden]{display:none}
+
 /* ============ HEADER ============ */
 header{position:sticky;top:0;z-index:60;transition:background .35s,box-shadow .35s;background:rgba(27,17,12,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 header.scrolled{background:rgba(255,253,248,.94);box-shadow:0 4px 24px rgba(27,17,12,.10)}
@@ -363,6 +369,14 @@ footer a:hover{color:var(--gold-pale);padding-left:.3rem}
 .order-summary{background:var(--ivory-2);border-radius:11px;padding:.95rem 1.15rem;margin-bottom:1.35rem;font-size:.92rem}
 .order-summary .row{display:flex;justify-content:space-between;padding:.16rem 0}
 .order-summary .row.total{font-weight:800;border-top:1px dashed #C9B27F;margin-top:.35rem;padding-top:.45rem}
+.coupon-row{display:flex;gap:.6rem;margin-bottom:.5rem}
+.coupon-row input{flex:1;padding:.65rem .9rem;border:1px solid #E5D9C3;border-radius:8px;text-transform:uppercase;font-size:.92rem}
+.coupon-row button{padding:.65rem 1.1rem;border-radius:8px;background:var(--ink);color:var(--ivory);font-size:.88rem;flex:none}
+.coupon-row button:hover{background:var(--kumkum-deep)}
+.coupon-row button:disabled{opacity:.6}
+.coupon-msg{font-size:.82rem;margin-bottom:1rem;min-height:1.1em}
+.coupon-msg.ok{color:var(--ok,#2E7D32)}
+.coupon-msg.err{color:var(--kumkum)}
 @media(max-width:560px){.fgrid{grid-template-columns:1fr}}
 
 /* ============ SUCCESS ============ */
@@ -444,6 +458,10 @@ header.scrolled .menu-btn{color:var(--ink)}
 
 <div class="preloader" id="preloader" aria-hidden="true"><div class="pre-om">ॐ</div></div>
 
+<div class="promo-banner" id="promoBanner" hidden>
+  🎁 New here? Use code <b>WELCOME10</b> for 10% off your first order &nbsp;
+  <button onclick="dismissPromoBanner()" aria-label="Dismiss">×</button>
+</div>
 <div class="topbar">🕉 Every article is consecrated at the Divine Feet before it reaches you &nbsp;•&nbsp; <b>Free shipping across India on orders above ₹999</b></div>
 
 <header id="siteHeader">
@@ -1043,6 +1061,45 @@ function cartTotals(){
   return {sub,ship,grand:sub+ship,count};
 }
 
+/* ---------------- Coupons ---------------- */
+let appliedCoupon=null; // {code, discount} in rupees — set only after server-side validation
+function checkoutTotals(){
+  const {sub,ship,count}=cartTotals();
+  const discount=appliedCoupon?Math.min(appliedCoupon.discount,sub):0;
+  return {sub,ship,discount,grand:Math.max(0,sub-discount)+ship,count};
+}
+async function applyCoupon(){
+  const input=document.getElementById("couponInput");
+  const msg=document.getElementById("couponMsg");
+  const code=input.value.trim().toUpperCase();
+  if(!code){ msg.textContent="Enter a coupon code"; msg.className="coupon-msg err"; return; }
+  const btn=document.getElementById("couponBtn");
+  btn.disabled=true; btn.textContent="Checking…";
+  const phone=(document.getElementById("f-phone")||{}).value||"";
+  try{
+    const res=await fetch("/api/validate-coupon",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({code, items:Object.keys(cart).map(id=>({id,qty:cart[id]})), phone})
+    });
+    const data=await res.json();
+    if(data.valid){
+      appliedCoupon={code, discount:data.discount};
+      msg.textContent=`"${code}" applied — you saved ${fmt(data.discount)} 🎉`;
+      msg.className="coupon-msg ok";
+      input.disabled=true;
+    }else{
+      appliedCoupon=null;
+      msg.textContent=data.reason||"This coupon can't be applied";
+      msg.className="coupon-msg err";
+    }
+  }catch(e){
+    msg.textContent="Could not check this coupon — please try again";
+    msg.className="coupon-msg err";
+  }
+  btn.disabled=false; btn.textContent="Apply";
+  renderOrderSummary();
+}
+
 function updateCart(){
   saveCart();
   const {sub,ship,grand,count}=cartTotals();
@@ -1121,18 +1178,32 @@ function openCheckout(){
 }
 function closeCheckout(){document.getElementById("checkoutModal").classList.remove("open");}
 
-function renderCheckoutForm(){
-  const {sub,ship,grand}=cartTotals();
+function renderOrderSummary(){
+  const {sub,ship,discount,grand}=checkoutTotals();
   const rows=Object.keys(cart).map(id=>{
     const p=PRODUCTS.find(x=>x.id===id);
     return `<div class="row"><span>${p.name} × ${cart[id]}</span><span>${fmt(p.price*cart[id])}</span></div>`;
   }).join("");
+  const discountRow=discount>0?`<div class="row" style="color:#2E7D32"><span>Discount (${appliedCoupon.code})</span><span>−${fmt(discount)}</span></div>`:"";
+  document.getElementById("orderSummaryBody").innerHTML=`
+    ${rows}
+    <div class="row"><span>Shipping</span><span>${ship===0?"FREE":fmt(ship)}</span></div>
+    ${discountRow}
+    <div class="row total"><span>Total payable</span><span>${fmt(grand)}</span></div>`;
+  const btn=document.getElementById("payBtn");
+  if(btn && !btn.disabled) btn.textContent=`🕉  Place Order — ${fmt(grand)}`;
+}
+
+function renderCheckoutForm(){
+  appliedCoupon=null;
+  const {grand}=checkoutTotals();
   document.getElementById("checkoutBody").innerHTML=`
-    <div class="order-summary">
-      ${rows}
-      <div class="row"><span>Shipping</span><span>${ship===0?"FREE":fmt(ship)}</span></div>
-      <div class="row total"><span>Total payable</span><span>${fmt(grand)}</span></div>
+    <div class="order-summary" id="orderSummaryBody"></div>
+    <div class="coupon-row">
+      <input type="text" id="couponInput" placeholder="Have a coupon code?">
+      <button type="button" id="couponBtn" onclick="applyCoupon()">Apply</button>
     </div>
+    <div class="coupon-msg" id="couponMsg"></div>
     <div class="fgrid">
       <div class="field"><label for="f-name">Full name *</label><input id="f-name" required autocomplete="name"></div>
       <div class="field"><label for="f-phone">Mobile number *</label><input id="f-phone" required inputmode="tel" autocomplete="tel" placeholder="10-digit mobile"></div>
@@ -1154,6 +1225,7 @@ function renderCheckoutForm(){
     <button class="pay-btn" id="payBtn" onclick="placeOrder()">🕉 &nbsp;Place Order — ${fmt(grand)}</button>
     <div class="secure">🔒 Payments are processed securely. Your details are used only for delivering your order.</div>`;
   payMethod="razorpay";
+  renderOrderSummary();
 }
 
 function selectPay(m){
@@ -1175,10 +1247,12 @@ function getForm(){
 function orderId(){return "SOT-"+Date.now().toString(36).toUpperCase();}
 
 function orderText(f,oid){
-  const {sub,ship,grand}=cartTotals();
+  const {sub,ship,discount,grand}=checkoutTotals();
   let t=`🕉 *New Order — ${CONFIG.BUSINESS_NAME}*\nOrder ID: ${oid}\n\n`;
   for(const id in cart){const p=PRODUCTS.find(x=>x.id===id);t+=`• ${p.name} × ${cart[id]} = ${fmt(p.price*cart[id])}\n`;}
-  t+=`\nSubtotal: ${fmt(sub)}\nShipping: ${ship===0?"FREE":fmt(ship)}\n*Total: ${fmt(grand)}*\n\n`;
+  t+=`\nSubtotal: ${fmt(sub)}\nShipping: ${ship===0?"FREE":fmt(ship)}\n`;
+  if(discount>0) t+=`Discount (${appliedCoupon.code}): −${fmt(discount)}\n`;
+  t+=`*Total: ${fmt(grand)}*\n\n`;
   t+=`*Deliver to:*\n${f.name}\n${f.addr}, ${f.city} - ${f.pin}\n📞 ${f.phone}${f.email?`\n✉ ${f.email}`:""}`;
   return encodeURIComponent(t);
 }
@@ -1195,7 +1269,7 @@ function logWhatsAppOrder(f,oid){
   fetch("/api/log-order",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({oid,items,customer:f,session_id:SESSION_ID})
+    body:JSON.stringify({oid,items,customer:f,session_id:SESSION_ID,coupon_code:appliedCoupon?appliedCoupon.code:undefined})
   }).catch(()=>{});
 }
 
@@ -1227,7 +1301,7 @@ async function placeOrder(){
     const res=await fetch("/api/create-order",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({items,receipt:oid,customer:f,session_id:SESSION_ID})
+      body:JSON.stringify({items,receipt:oid,customer:f,session_id:SESSION_ID,coupon_code:appliedCoupon?appliedCoupon.code:undefined})
     });
     if(!res.ok) throw new Error("create-order failed");
     order=await res.json();
@@ -1471,8 +1545,19 @@ window.addEventListener("scroll",()=>{
   document.getElementById("toTop").classList.toggle("show",window.scrollY>600);
 },{passive:true});
 
+/* ---------------- Promo banner ---------------- */
+function dismissPromoBanner(){
+  document.getElementById("promoBanner").hidden=true;
+  try{ localStorage.setItem("sot_promo_dismissed","1"); }catch(e){}
+}
+function showPromoBannerIfNeeded(){
+  try{ if(localStorage.getItem("sot_promo_dismissed")==="1") return; }catch(e){}
+  document.getElementById("promoBanner").hidden=false;
+}
+
 /* ---------------- Init ---------------- */
 document.getElementById("yr").textContent=new Date().getFullYear();
+showPromoBannerIfNeeded();
 applyContactConfig(); renderProductSchema(); trackEvent("view", undefined, {referrer: document.referrer||null, utm: getUtmParams()});
 renderFilters(); renderProducts(); renderRite(); renderTesti(); renderFaq(); renderMarquee(); renderRashiGrid(); makeEmbers(); updateCart(); observeReveals();
 window.addEventListener("load",()=>setTimeout(()=>document.getElementById("preloader").classList.add("done"),650));

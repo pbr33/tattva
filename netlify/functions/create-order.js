@@ -1,6 +1,7 @@
-const { computeAmountPaise } = require("./lib/pricing");
+const { computeBreakdown } = require("./lib/pricing");
 const { getOrdersStore } = require("./lib/blobs");
 const { isValidOid, sanitizeCustomer } = require("./lib/validate");
+const { evaluateCoupon, normalizeCode } = require("./lib/coupons");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -29,9 +30,34 @@ exports.handler = async (event) => {
   // Amount is computed here from server-side prices — the client sends only
   // item ids/quantities, never a trusted amount. This is what stops someone
   // from tampering with the price via devtools before paying.
-  const amount = computeAmountPaise(payload.items);
-  if (amount === null || amount < 100) {
+  const breakdown = computeBreakdown(payload.items);
+  if (breakdown === null) {
     return json(400, { error: "Invalid or empty basket" });
+  }
+
+  const customer = sanitizeCustomer(payload.customer);
+  const phone = customer ? customer.phone : "";
+
+  // Coupon discount, computed the same way validate-coupon.js does, so a
+  // client can never apply a discount amount of its own choosing — only a
+  // real coupon code the server independently evaluates.
+  let discountRupees = 0;
+  let appliedCoupon = null;
+  if (payload.coupon_code) {
+    const result = await evaluateCoupon(payload.coupon_code, breakdown.sub, phone || null);
+    if (result.ok) {
+      discountRupees = result.discount;
+      appliedCoupon = { code: normalizeCode(payload.coupon_code), discount_amount: discountRupees * 100 };
+    }
+    // An invalid/expired coupon at this point is silently ignored rather
+    // than failing the order — the checkout UI already validated it live,
+    // so this only matters if something changed between "Apply" and
+    // "Place Order" (e.g. the coupon was just deactivated).
+  }
+
+  const amount = Math.max(0, breakdown.sub - discountRupees + breakdown.ship) * 100;
+  if (amount < 100) {
+    return json(400, { error: "Order amount too low" });
   }
 
   let receipt = "SOT-" + Date.now().toString(36).toUpperCase();
@@ -75,11 +101,16 @@ exports.handler = async (event) => {
       payment_id: null,
       method: "razorpay",
       items: payload.items,
-      customer: sanitizeCustomer(payload.customer),
+      customer,
       amount: order.amount,
       currency: order.currency,
+      coupon: appliedCoupon,
       status: "created",
-      status_history: [{ status: "created", note: "Razorpay order created, awaiting payment", ts: now }],
+      status_history: [{
+        status: "created",
+        note: appliedCoupon ? `Razorpay order created, awaiting payment · Coupon ${appliedCoupon.code} applied (-₹${discountRupees})` : "Razorpay order created, awaiting payment",
+        ts: now
+      }],
       created_at: now,
       updated_at: now
     });

@@ -30,8 +30,11 @@ const FREE_SHIP_ABOVE = 999;
 const SHIP_FLAT = 79;
 const MAX_QTY_PER_ITEM = 20;
 
-// items: [{id, qty}, ...] as sent by the client. Returns null if invalid.
-function computeAmountPaise(items) {
+// items: [{id, qty}, ...] as sent by the client. Returns null if invalid,
+// otherwise {sub, ship} in rupees — shipping is always evaluated against
+// the pre-discount subtotal, so a coupon can never be used to game free
+// shipping.
+function computeBreakdown(items) {
   if (!Array.isArray(items) || items.length === 0) return null;
   let sub = 0;
   for (const it of items) {
@@ -43,7 +46,13 @@ function computeAmountPaise(items) {
     sub += price * qty;
   }
   const ship = sub === 0 ? 0 : (sub >= FREE_SHIP_ABOVE ? 0 : SHIP_FLAT);
-  return (sub + ship) * 100; // paise
+  return { sub, ship };
 }
 
-module.exports = { PRICES, computeAmountPaise };
+// items: [{id, qty}, ...] as sent by the client. Returns null if invalid.
+function computeAmountPaise(items) {
+  const b = computeBreakdown(items);
+  return b === null ? null : (b.sub + b.ship) * 100;
+}
+
+module.exports = { PRICES, FREE_SHIP_ABOVE, SHIP_FLAT, computeBreakdown, computeAmountPaise };

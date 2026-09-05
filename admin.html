@@ -60,6 +60,16 @@ section h2{font-size:1.15rem;color:var(--kumkum-deep);margin-bottom:.8rem}
 .toolbar button:hover{background:var(--kumkum-deep)}
 .toolbar .count{font-size:.82rem;color:var(--ink-soft);margin-left:auto}
 
+.coupon-form{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.8rem;background:var(--white);border:1px solid var(--line);border-radius:12px;padding:.9rem}
+.coupon-form input[type=text],.coupon-form input[type=number],.coupon-form input[type=date],.coupon-form select{padding:.5rem .7rem;border:1px solid var(--line);border-radius:8px;background:var(--white);font-size:.85rem}
+.coupon-form input[type=text]{width:11rem}
+.coupon-form input[type=number]{width:8rem}
+.coupon-form .cf-check{display:flex;align-items:center;gap:.4rem;font-size:.85rem}
+.coupon-form button{background:var(--kumkum);color:var(--white);padding:.55rem 1.1rem;border-radius:8px;font-size:.85rem}
+.coupon-form button:hover{background:var(--kumkum-deep)}
+.toggle-btn{padding:.25rem .6rem;border-radius:6px;font-size:.75rem;background:var(--ivory-2);color:var(--ink)}
+.toggle-btn:hover{background:var(--gold-pale)}
+
 .table-wrap{overflow-x:auto;background:var(--white);border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.88rem;min-width:760px}
 th,td{padding:.6rem .8rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
@@ -151,6 +161,31 @@ tr:last-child td{border-bottom:none}
     </section>
 
     <section>
+      <h2>Coupons</h2>
+      <div class="coupon-form" id="couponForm">
+        <input type="text" id="cf-code" placeholder="CODE (e.g. WELCOME10)" style="text-transform:uppercase">
+        <select id="cf-type"><option value="percent">% off</option><option value="flat">₹ off</option></select>
+        <input type="number" id="cf-value" placeholder="Value" min="1">
+        <input type="number" id="cf-min" placeholder="Min order ₹" min="0">
+        <input type="number" id="cf-max" placeholder="Max discount ₹ (optional)" min="0">
+        <input type="number" id="cf-usagelimit" placeholder="Total uses (optional)" min="1">
+        <input type="number" id="cf-userlimit" placeholder="Uses per customer" min="1" value="1">
+        <input type="date" id="cf-expires" title="Expires (optional)">
+        <label class="cf-check"><input type="checkbox" id="cf-newuser"> New customers only</label>
+        <button id="cf-save">Save Coupon</button>
+      </div>
+      <div class="table-wrap">
+        <table id="couponsTable">
+          <thead><tr>
+            <th>Code</th><th>Discount</th><th>Min Order</th><th>New Users Only</th>
+            <th>Usage</th><th>Expires</th><th>Active</th><th></th>
+          </tr></thead>
+          <tbody id="couponsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
       <h2>Customers</h2>
       <div class="toolbar">
         <input type="text" id="customerSearch" placeholder="Search name or phone…">
@@ -216,6 +251,7 @@ const esc = v => String(v==null?"":v).replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 
 let ALL_ORDERS = [];
 let ALL_CUSTOMERS = [];
+let ALL_COUPONS = [];
 
 function toast(msg){
   const t = document.getElementById("toast");
@@ -259,8 +295,8 @@ document.getElementById("customerSearch").addEventListener("input", () => render
 document.getElementById("exportBtn").onclick = exportCsv;
 
 async function loadAll(){
-  const [ordersRes, sessionsRes, supportRes, customersRes] = await Promise.all([
-    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers")
+  const [ordersRes, sessionsRes, supportRes, customersRes, couponsRes] = await Promise.all([
+    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers"), api("/api/admin-coupons")
   ]);
   if(ordersRes.status===401 || sessionsRes.status===401){ showLogin(); return; }
   if(!ordersRes.ok || !sessionsRes.ok){ toast("Could not load some data — check your connection and try again"); return; }
@@ -275,6 +311,7 @@ async function loadAll(){
   renderSessions(sessions, orders);
   renderSupport(conversations);
   renderCustomers(ALL_CUSTOMERS);
+  if(couponsRes.ok){ const { coupons } = await couponsRes.json(); ALL_COUPONS = coupons; renderCoupons(coupons); }
 }
 
 const PAID_STATUSES = ["paid","processing","shipped","delivered"];
@@ -540,6 +577,68 @@ function renderSessions(sessions, orders){
     </tr>`;
   }).join("");
 }
+
+function renderCoupons(coupons){
+  const body = document.getElementById("couponsBody");
+  if(!coupons.length){ body.innerHTML = `<tr><td colspan="8" class="empty">No coupons yet — create one above</td></tr>`; return; }
+
+  body.innerHTML = coupons.map(c => {
+    const discountLabel = c.type==="percent" ? `${c.value}%${c.max_discount?` (max ₹${c.max_discount})`:""}` : `₹${c.value}`;
+    const usage = `${c.used_count||0}${c.usage_limit?"/"+c.usage_limit:""}`;
+    return `<tr>
+      <td><b>${esc(c.code)}</b></td>
+      <td>${esc(discountLabel)}</td>
+      <td>${c.min_order?fmt(c.min_order):"—"}</td>
+      <td>${c.new_user_only?"Yes":"No"}</td>
+      <td>${esc(usage)}${c.per_user_limit?` <span class="muted">(${c.per_user_limit}/customer)</span>`:""}</td>
+      <td>${c.expires_at?esc(new Date(c.expires_at).toLocaleDateString("en-IN")):"—"}</td>
+      <td><span class="badge ${c.active?'b-paid':'b-cancelled'}">${c.active?"Active":"Inactive"}</span></td>
+      <td><button class="toggle-btn" data-code="${esc(c.code)}" data-active="${c.active?0:1}">${c.active?"Deactivate":"Activate"}</button></td>
+    </tr>`;
+  }).join("");
+
+  body.querySelectorAll(".toggle-btn").forEach(btn => {
+    btn.onclick = async () => {
+      const coupon = ALL_COUPONS.find(c => c.code === btn.dataset.code);
+      if(!coupon) return;
+      btn.disabled = true;
+      const res = await api("/api/admin-save-coupon", { method:"POST", body: JSON.stringify({ ...coupon, active: btn.dataset.active==="1" }) });
+      if(res.ok){ toast("Coupon updated"); loadAll(); } else { toast("Update failed"); btn.disabled=false; }
+    };
+  });
+}
+
+document.getElementById("cf-save").onclick = async () => {
+  const code = document.getElementById("cf-code").value.trim().toUpperCase();
+  const value = Number(document.getElementById("cf-value").value);
+  if(!code || !value){ toast("Enter a code and a discount value"); return; }
+  const body = {
+    code,
+    type: document.getElementById("cf-type").value,
+    value,
+    min_order: document.getElementById("cf-min").value || 0,
+    max_discount: document.getElementById("cf-max").value || undefined,
+    usage_limit: document.getElementById("cf-usagelimit").value || undefined,
+    per_user_limit: document.getElementById("cf-userlimit").value || 1,
+    expires_at: document.getElementById("cf-expires").value || undefined,
+    new_user_only: document.getElementById("cf-newuser").checked,
+    active: true
+  };
+  const btn = document.getElementById("cf-save");
+  btn.disabled = true; btn.textContent = "Saving…";
+  const res = await api("/api/admin-save-coupon", { method:"POST", body: JSON.stringify(body) });
+  btn.disabled = false; btn.textContent = "Save Coupon";
+  if(res.ok){
+    toast("Coupon saved");
+    ["cf-code","cf-value","cf-min","cf-max","cf-usagelimit","cf-expires"].forEach(id => document.getElementById(id).value="");
+    document.getElementById("cf-userlimit").value = "1";
+    document.getElementById("cf-newuser").checked = false;
+    loadAll();
+  } else {
+    const d = await res.json().catch(()=>({}));
+    toast(d.error || "Could not save coupon");
+  }
+};
 
 function filteredCustomers(customers){
   const q = document.getElementById("customerSearch").value.trim().toLowerCase();

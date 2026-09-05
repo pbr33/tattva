@@ -34,11 +34,14 @@ persistent order storage can't safely live in client-side JS alone.
     ├── track-event.js            # visitor activity logging (public)
     ├── log-order.js              # records WhatsApp-path orders (public)
     ├── chat.js                   # AI support chatbot (public)
+    ├── validate-coupon.js        # live coupon validation for checkout (public)
     ├── admin-login.js / admin-logout.js
-    ├── admin-orders.js / admin-sessions.js / admin-support.js
+    ├── admin-orders.js / admin-sessions.js / admin-support.js / admin-customers.js
     ├── admin-update-order.js / admin-update-support.js / admin-create-shipment.js
+    ├── admin-coupons.js / admin-save-coupon.js
     └── lib/
         ├── pricing.js            # authoritative price table (mirrors PRODUCTS)
+        ├── coupons.js             # coupon evaluation, shared by validate-coupon.js and order creation
         ├── knowledge.js           # chatbot grounding (mirrors PRODUCTS/FAQS/policies)
         ├── shiprocket.js          # Shiprocket auth + order creation
         ├── validate.js            # input validation (oid/session_id format, customer field caps)
@@ -165,6 +168,26 @@ chat per Anthropic's own guidance, not a quality downgrade; raise it in
 `chat.js` if replies need to get sharper. Each message is a real API call —
 `chat.js` caps message length, stored history length, and forces escalation
 after a long conversation, since cost scales with usage.
+
+## Coupons / discounts
+
+A dismissible promo banner (top of the site) and a coupon field at checkout,
+backed by real server-side validation — `netlify/functions/lib/coupons.js`
+is the single source of truth used by both `validate-coupon.js` (live
+checkout feedback) and `create-order.js`/`log-order.js` (the actual charge),
+so a discount can never be forged client-side, same principle as the
+server-computed price table.
+
+Manage coupons entirely from `/admin` → Coupons: code, `%` or `₹` off, an
+optional minimum order and max-discount cap, "new customers only" (checked
+against paid-order history by phone number — there's no login system, so
+phone is the closest thing to a customer identity), total usage limit, and
+per-customer usage limit. Deactivating a coupon is a toggle, not a delete —
+usage history (`used_count`/`used_by`) is preserved and can't be reset via
+the save endpoint, so editing an existing coupon never silently erases real
+usage data. A starter coupon (`WELCOME10` — 10% off, new customers only,
+₹499 minimum, ₹150 max discount, one use per phone) was created through
+this same admin flow, not seeded in code.
 
 ## Shipping (Shiprocket)
 
