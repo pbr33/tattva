@@ -777,7 +777,7 @@ header.scrolled .menu-btn{color:var(--ink)}
 const CONFIG = {
   // 1) Create a free account at https://razorpay.com and paste your
   //    Key ID here (starts with rzp_test_ for testing, rzp_live_ for live).
-  RAZORPAY_KEY: "rzp_test_REPLACE_ME",
+  RAZORPAY_KEY: "rzp_test_TYBrsDXczrxuMP",
   BUSINESS_NAME: "Shri Om Tattva",
   // 2) Your WhatsApp number with country code, digits only (fallback ordering
   //    channel). This ONE value now drives every WhatsApp/phone link on the
@@ -1072,7 +1072,7 @@ function renderCheckoutForm(){
         <div><b>Order on WhatsApp</b><small>Send your order to the Mandir on WhatsApp and pay via UPI directly.</small></div>
       </div>
     </div>
-    <button class="pay-btn" onclick="placeOrder()">🕉 &nbsp;Place Order — ${fmt(grand)}</button>
+    <button class="pay-btn" id="payBtn" onclick="placeOrder()">🕉 &nbsp;Place Order — ${fmt(grand)}</button>
     <div class="secure">🔒 Payments are processed securely. Your details are used only for delivering your order.</div>`;
   payMethod="razorpay";
 }
@@ -1104,7 +1104,20 @@ function orderText(f,oid){
   return encodeURIComponent(t);
 }
 
-function placeOrder(){
+function setPayBtnBusy(busy,label){
+  const b=document.getElementById("payBtn");
+  if(!b) return;
+  b.disabled=busy;
+  if(label) b.textContent=label;
+}
+
+function fallbackToWhatsApp(f,oid,reason){
+  toast(reason+" — sending order via WhatsApp instead");
+  window.open(`https://wa.me/${CONFIG.WHATSAPP}?text=${orderText(f,oid)}`,"_blank");
+  showSuccess(oid,"Your order has been sent to the Mandir on WhatsApp. We will confirm and share UPI payment details shortly.");
+}
+
+async function placeOrder(){
   const f=getForm(); if(!f) return;
   const oid=orderId();
   if(payMethod==="whatsapp"){
@@ -1112,28 +1125,63 @@ function placeOrder(){
     showSuccess(oid,"Your order has been sent to the Mandir on WhatsApp. We will confirm and share UPI payment details shortly.");
     return;
   }
-  const {grand}=cartTotals();
   if(typeof Razorpay==="undefined"){
-    toast("Online payment is unavailable here — sending order via WhatsApp instead");
-    window.open(`https://wa.me/${CONFIG.WHATSAPP}?text=${orderText(f,oid)}`,"_blank");
-    showSuccess(oid,"Online payment could not load in this preview. Your order was sent via WhatsApp instead.");
+    fallbackToWhatsApp(f,oid,"Online payment is unavailable here");
     return;
   }
+
+  const items=Object.keys(cart).map(id=>({id,qty:cart[id]}));
+  setPayBtnBusy(true,"Preparing secure payment…");
+  let order;
+  try{
+    const res=await fetch("/api/create-order",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({items,receipt:oid})
+    });
+    if(!res.ok) throw new Error("create-order failed");
+    order=await res.json();
+  }catch(e){
+    setPayBtnBusy(false,`🕉  Place Order`);
+    fallbackToWhatsApp(f,oid,"Could not start secure payment");
+    return;
+  }
+  setPayBtnBusy(false,`🕉  Place Order — ${fmt(order.amount/100)}`);
+
   const rzp=new Razorpay({
     key: CONFIG.RAZORPAY_KEY,
-    amount: grand*100,
-    currency: CONFIG.CURRENCY,
+    order_id: order.order_id,
+    amount: order.amount,
+    currency: order.currency,
     name: CONFIG.BUSINESS_NAME,
     description: "Sacred articles — Param Prasada",
     prefill:{name:f.name,contact:f.phone,email:f.email||undefined},
     notes:{order_id:oid,address:`${f.addr}, ${f.city} - ${f.pin}`},
     theme:{color:CONFIG.THEME_COLOR},
-    handler:function(resp){
-      showSuccess(oid,`Payment received (ID: ${resp.razorpay_payment_id}). The Mandir will consecrate and dispatch your order shortly. A confirmation will reach you on ${f.phone}.`);
+    handler:async function(resp){
+      setPayBtnBusy(true,"Verifying payment…");
+      try{
+        const vres=await fetch("/api/verify-payment",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            razorpay_order_id:resp.razorpay_order_id,
+            razorpay_payment_id:resp.razorpay_payment_id,
+            razorpay_signature:resp.razorpay_signature
+          })
+        });
+        const vdata=await vres.json();
+        if(!vres.ok||!vdata.verified) throw new Error("verification failed");
+        showSuccess(oid,`Payment received and verified (ID: ${resp.razorpay_payment_id}). The Mandir will consecrate and dispatch your order shortly. A confirmation will reach you on ${f.phone}.`);
+      }catch(e){
+        setPayBtnBusy(false,`🕉  Place Order`);
+        toast("Payment could not be verified — please contact us on WhatsApp with your payment ID before we can confirm your order");
+      }
     },
-    modal:{ondismiss:function(){toast("Payment was not completed");}}
+    modal:{ondismiss:function(){ setPayBtnBusy(false,`🕉  Place Order — ${fmt(order.amount/100)}`); toast("Payment was not completed"); }}
   });
   rzp.on("payment.failed",function(resp){
+    setPayBtnBusy(false,`🕉  Place Order — ${fmt(order.amount/100)}`);
     toast("Payment failed: "+(resp.error&&resp.error.description||"please try again"));
   });
   rzp.open();
