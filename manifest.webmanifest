@@ -1,0 +1,12 @@
+{
+  "name": "Shri Om Tattva",
+  "short_name": "Shri Om Tattva",
+  "description": "Temple-consecrated sacred articles — malas, rudraksha, yantras and puja essentials.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBF6EC",
+  "theme_color": "#B3251E",
+  "icons": [
+    { "src": "/om-logo.png", "sizes": "256x256", "type": "image/png" }
+  ]
+}

@@ -40,18 +40,35 @@ python3 -m http.server 8000
 ## Before going live — required edits
 
 Open `index.html`, find the `CONFIG` object near the top of the `<script>`
-block (search for `RAZORPAY_KEY`), and set:
+block (search for `RAZORPAY_KEY`), and set every `PASTE_..._HERE` value:
 
 ```js
 const CONFIG = {
-  RAZORPAY_KEY: "rzp_live_XXXXXXXX",   // from razorpay.com dashboard
-  WHATSAPP: "91XXXXXXXXXX",             // Mandir's WhatsApp, country code + number
+  RAZORPAY_KEY: "rzp_live_XXXXXXXX",     // from razorpay.com dashboard
+  WHATSAPP: "91XXXXXXXXXX",               // digits only, country code + number
+  PHONE_DISPLAY: "+91 XXXXX XXXXX",       // shown in the footer
+  EMAIL: "orders@yourdomain.com",         // a real, monitored inbox
+  ADDRESS: "Full registered address",     // shown in footer + JSON-LD
   ...
 };
 ```
 
+`WHATSAPP` is now the single source of truth for every WhatsApp/phone link on
+the site (footer, floating button, Jyotish section) — the footer and
+floating button used to have the number hardcoded separately, which meant
+editing `CONFIG` alone didn't actually update them. That's fixed: they're now
+populated from `CONFIG` at page load via `applyContactConfig()`.
+
 Everything else (products, prices, testimonials, FAQ) is also editable in
 that same `<script>` block — search for `const PRODUCTS = [` etc.
+
+**Also required for Razorpay's live-mode activation:** review the four policy
+sections near the bottom of the page (`id="policies"` — Privacy, Terms,
+Refund & Cancellation, Shipping). They're a starting draft, not legal advice —
+confirm the actual return window, who pays return shipping, and your GSTIN
+(if registered) before relying on them. The `TESTIMONIALS` section is
+currently sample/illustrative content (labelled as such on the page) —
+replace with real devotee reviews when available.
 
 ## Deploy
 
