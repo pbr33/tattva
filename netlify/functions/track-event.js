@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     return json(400, { error: "Invalid JSON body" });
   }
 
-  const { session_id, type, product_id } = payload;
+  const { session_id, type, product_id, meta } = payload;
   if (typeof session_id !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(session_id)) {
     return json(400, { error: "Invalid session_id" });
   }
@@ -34,10 +34,37 @@ exports.handler = async (event) => {
   const now = new Date().toISOString();
   let doc = await store.get(session_id, { type: "json" });
   if (!doc) {
-    doc = { session_id, first_seen: now, last_seen: now, events: [], converted_order_id: null };
+    doc = { session_id, first_seen: now, last_seen: now, events: [], converted_order_id: null, referrer: null, utm: null };
   }
   doc.last_seen = now;
-  doc.events.push({ type, product_id: product_id || undefined, ts: now });
+
+  const ev = { type, product_id: product_id || undefined, ts: now };
+
+  if (type === "view" && meta && !doc.referrer_set) {
+    // Only capture how this session *arrived* once — first "view" of the
+    // session, not every page reload.
+    doc.referrer = typeof meta.referrer === "string" ? meta.referrer.slice(0, 300) : null;
+    const utmKeys = ["utm_source", "utm_medium", "utm_campaign"];
+    const utm = {};
+    let hasUtm = false;
+    if (meta.utm && typeof meta.utm === "object") {
+      for (const k of utmKeys) {
+        if (typeof meta.utm[k] === "string" && meta.utm[k]) { utm[k] = meta.utm[k].slice(0, 100); hasUtm = true; }
+      }
+    }
+    doc.utm = hasUtm ? utm : null;
+    doc.referrer_set = true;
+  }
+
+  if (type === "checkout_start" && meta && Array.isArray(meta.cart)) {
+    ev.cart = meta.cart.slice(0, 30).map(it => ({
+      id: typeof it.id === "string" ? it.id.slice(0, 60) : "",
+      qty: Number.isFinite(it.qty) ? it.qty : 0
+    }));
+    ev.cart_value = Number.isFinite(meta.cart_value) ? meta.cart_value : undefined;
+  }
+
+  doc.events.push(ev);
   if (doc.events.length > MAX_EVENTS) doc.events = doc.events.slice(-MAX_EVENTS);
 
   await store.setJSON(session_id, doc);

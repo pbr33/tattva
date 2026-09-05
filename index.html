@@ -911,14 +911,22 @@ function getSessionId(){
   }catch(e){ return "anon-"+Date.now(); }
 }
 const SESSION_ID = getSessionId();
-function trackEvent(type, productId){
+function trackEvent(type, productId, meta){
   try{
     fetch("/api/track-event",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({session_id:SESSION_ID, type, product_id:productId})
+      body:JSON.stringify({session_id:SESSION_ID, type, product_id:productId, meta})
     }).catch(()=>{});
   }catch(e){}
+}
+function getUtmParams(){
+  try{
+    const p = new URLSearchParams(location.search);
+    const utm = {};
+    ["utm_source","utm_medium","utm_campaign"].forEach(k=>{ if(p.get(k)) utm[k]=p.get(k); });
+    return utm;
+  }catch(e){ return {}; }
 }
 const fmt = n => "₹" + n.toLocaleString("en-IN");
 
@@ -1103,12 +1111,13 @@ function closeQuickView(){document.getElementById("qvModal").classList.remove("o
 let payMethod="razorpay";
 
 function openCheckout(){
-  const {count}=cartTotals();
+  const {count,grand}=cartTotals();
   if(count===0){toast("Your basket is empty");return;}
   toggleCart(false);
   renderCheckoutForm();
   document.getElementById("checkoutModal").classList.add("open");
-  trackEvent("checkout_start");
+  const cartSnapshot=Object.keys(cart).map(id=>({id,qty:cart[id]}));
+  trackEvent("checkout_start", undefined, {cart:cartSnapshot, cart_value:grand});
 }
 function closeCheckout(){document.getElementById("checkoutModal").classList.remove("open");}
 
@@ -1464,7 +1473,7 @@ window.addEventListener("scroll",()=>{
 
 /* ---------------- Init ---------------- */
 document.getElementById("yr").textContent=new Date().getFullYear();
-applyContactConfig(); renderProductSchema(); trackEvent("view");
+applyContactConfig(); renderProductSchema(); trackEvent("view", undefined, {referrer: document.referrer||null, utm: getUtmParams()});
 renderFilters(); renderProducts(); renderRite(); renderTesti(); renderFaq(); renderMarquee(); renderRashiGrid(); makeEmbers(); updateCart(); observeReveals();
 window.addEventListener("load",()=>setTimeout(()=>document.getElementById("preloader").classList.add("done"),650));
 setTimeout(()=>document.getElementById("preloader").classList.add("done"),2500); /* safety */

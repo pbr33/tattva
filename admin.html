@@ -151,11 +151,28 @@ tr:last-child td{border-bottom:none}
     </section>
 
     <section>
+      <h2>Customers</h2>
+      <div class="toolbar">
+        <input type="text" id="customerSearch" placeholder="Search name or phone…">
+        <span class="count" id="customerCount"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="customersTable">
+          <thead><tr>
+            <th>Customer</th><th>Orders</th><th>Total Spent</th>
+            <th>First Order</th><th>Last Order</th><th></th>
+          </tr></thead>
+          <tbody id="customersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
       <h2>Visitor Activity</h2>
       <div class="table-wrap">
         <table id="sessionsTable">
           <thead><tr>
-            <th>Session</th><th>First seen</th><th>Last seen</th>
+            <th>Session</th><th>First seen</th><th>Last seen</th><th>Source</th>
             <th>Viewed</th><th>Added to cart</th><th>Converted</th>
           </tr></thead>
           <tbody id="sessionsBody"></tbody>
@@ -198,6 +215,7 @@ const fmt = n => "₹" + Number(n||0).toLocaleString("en-IN");
 const esc = v => String(v==null?"":v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 let ALL_ORDERS = [];
+let ALL_CUSTOMERS = [];
 
 function toast(msg){
   const t = document.getElementById("toast");
@@ -237,29 +255,58 @@ document.getElementById("logoutBtn").onclick = async () => {
 })();
 document.getElementById("orderSearch").addEventListener("input", () => renderOrders(ALL_ORDERS));
 document.getElementById("statusFilter").addEventListener("change", () => renderOrders(ALL_ORDERS));
+document.getElementById("customerSearch").addEventListener("input", () => renderCustomers(ALL_CUSTOMERS));
 document.getElementById("exportBtn").onclick = exportCsv;
 
 async function loadAll(){
-  const [ordersRes, sessionsRes, supportRes] = await Promise.all([ api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support") ]);
+  const [ordersRes, sessionsRes, supportRes, customersRes] = await Promise.all([
+    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers")
+  ]);
   if(ordersRes.status===401 || sessionsRes.status===401){ showLogin(); return; }
   if(!ordersRes.ok || !sessionsRes.ok){ toast("Could not load some data — check your connection and try again"); return; }
   const { orders } = await ordersRes.json();
   const { sessions } = await sessionsRes.json();
+  const conversations = supportRes.ok ? (await supportRes.json()).conversations : [];
   ALL_ORDERS = orders;
-  renderStats(orders, sessions);
-  renderBreakdowns(orders);
+  ALL_CUSTOMERS = customersRes.ok ? (await customersRes.json()).customers : [];
+  renderStats(orders, sessions, conversations);
+  renderBreakdowns(orders, sessions);
   renderOrders(orders);
   renderSessions(sessions, orders);
-  if(supportRes.ok){ const { conversations } = await supportRes.json(); renderSupport(conversations); }
+  renderSupport(conversations);
+  renderCustomers(ALL_CUSTOMERS);
 }
 
-function renderStats(orders, sessions){
+const PAID_STATUSES = ["paid","processing","shipped","delivered"];
+
+function lastCheckoutEvent(session){
+  for(let i=session.events.length-1;i>=0;i--){
+    if(session.events[i].type==="checkout_start") return session.events[i];
+  }
+  return null;
+}
+
+function renderStats(orders, sessions, conversations){
   const totalSessions = sessions.length;
   const addedToCart = sessions.filter(s => s.events.some(e => e.type==="add_to_cart")).length;
   const converted = sessions.filter(s => s.converted_order_id).length;
-  const paidOrders = orders.filter(o => ["paid","processing","shipped","delivered"].includes(o.status));
+  const startedCheckout = sessions.filter(s => s.events.some(e => e.type==="checkout_start"));
+  const abandoned = startedCheckout.filter(s => !s.converted_order_id);
+  const abandonedValue = abandoned.reduce((sum,s) => {
+    const ev = lastCheckoutEvent(s);
+    return sum + (ev && ev.cart_value ? ev.cart_value : 0);
+  }, 0);
+
+  const paidOrders = orders.filter(o => PAID_STATUSES.includes(o.status));
   const revenue = paidOrders.reduce((sum,o) => sum + (o.amount||0), 0) / 100;
+  const aov = paidOrders.length ? revenue / paidOrders.length : 0;
   const rate = totalSessions ? Math.round(converted/totalSessions*100) : 0;
+
+  const srEligible = paidOrders.filter(o => o.shiprocket);
+  const srOk = srEligible.filter(o => o.shiprocket && o.shiprocket.order_id).length;
+  const srRate = srEligible.length ? Math.round(srOk/srEligible.length*100)+"%" : "—";
+
+  const escalated = conversations.filter(c => c.status==="escalated").length;
 
   document.getElementById("stats").innerHTML = `
     <div class="stat"><div class="n">${totalSessions}</div><div class="l">Visitor Sessions</div></div>
@@ -267,10 +314,15 @@ function renderStats(orders, sessions){
     <div class="stat"><div class="n">${orders.length}</div><div class="l">Total Orders</div></div>
     <div class="stat"><div class="n">${rate}%</div><div class="l">Conversion Rate</div></div>
     <div class="stat"><div class="n">${fmt(revenue)}</div><div class="l">Paid Revenue</div></div>
+    <div class="stat"><div class="n">${fmt(aov)}</div><div class="l">Avg Order Value</div></div>
+    <div class="stat"><div class="n">${abandoned.length}</div><div class="l">Abandoned Checkouts</div></div>
+    <div class="stat"><div class="n">${srRate}</div><div class="l">Shiprocket Success</div></div>
+    <div class="stat"><div class="n">${conversations.length}</div><div class="l">Chat Conversations</div></div>
+    <div class="stat"><div class="n">${escalated}</div><div class="l">Escalated to Human</div></div>
   `;
 }
 
-function renderBreakdowns(orders){
+function renderBreakdowns(orders, sessions){
   const byStatus = {};
   orders.forEach(o => { byStatus[o.status] = (byStatus[o.status]||0) + 1; });
   const statusRows = Object.keys(byStatus)
@@ -278,7 +330,7 @@ function renderBreakdowns(orders){
     .map(s => `<div class="row"><span>${esc(STATUS_LABEL[s]||s)}</span><b>${byStatus[s]}</b></div>`).join("");
 
   const productQty = {};
-  orders.filter(o => ["paid","processing","shipped","delivered"].includes(o.status)).forEach(o => {
+  orders.filter(o => PAID_STATUSES.includes(o.status)).forEach(o => {
     (o.items||[]).forEach(it => { const id = it.id||it.name; productQty[id] = (productQty[id]||0) + (it.qty||0); });
   });
   const topProducts = Object.keys(productQty)
@@ -286,9 +338,27 @@ function renderBreakdowns(orders){
     .slice(0,8)
     .map(id => `<div class="row"><span>${esc(id)}</span><b>${productQty[id]}</b></div>`).join("");
 
+  const sourceCounts = {};
+  sessions.forEach(s => {
+    let label = "Direct";
+    if(s.utm && s.utm.utm_source) label = s.utm.utm_source;
+    else if(s.referrer){
+      try{
+        const host = new URL(s.referrer).hostname.replace(/^www\./,"");
+        label = /whatsapp|wa\.me/i.test(host) ? "WhatsApp" : host;
+      }catch(e){ /* keep Direct */ }
+    }
+    sourceCounts[label] = (sourceCounts[label]||0)+1;
+  });
+  const sourceRows = Object.keys(sourceCounts)
+    .sort((a,b) => sourceCounts[b]-sourceCounts[a])
+    .slice(0,8)
+    .map(l => `<div class="row"><span>${esc(l)}</span><b>${sourceCounts[l]}</b></div>`).join("");
+
   document.getElementById("breakdowns").innerHTML = `
     <div class="breakdown"><h3>Orders by Status</h3>${statusRows || '<div class="muted">No orders yet</div>'}</div>
     <div class="breakdown"><h3>Top Products (paid+)</h3>${topProducts || '<div class="muted">No paid orders yet</div>'}</div>
+    <div class="breakdown"><h3>Traffic Sources</h3>${sourceRows || '<div class="muted">No visits yet</div>'}</div>
   `;
 }
 
@@ -440,9 +510,18 @@ function exportCsv(){
   URL.revokeObjectURL(url);
 }
 
+function sessionSource(s){
+  if(s.utm && s.utm.utm_source) return s.utm.utm_source;
+  if(!s.referrer) return "Direct";
+  try{
+    const host = new URL(s.referrer).hostname.replace(/^www\./,"");
+    return /whatsapp|wa\.me/i.test(host) ? "WhatsApp" : host;
+  }catch(e){ return "Direct"; }
+}
+
 function renderSessions(sessions, orders){
   const body = document.getElementById("sessionsBody");
-  if(!sessions.length){ body.innerHTML = `<tr><td colspan="6" class="empty">No visitor activity yet</td></tr>`; return; }
+  if(!sessions.length){ body.innerHTML = `<tr><td colspan="7" class="empty">No visitor activity yet</td></tr>`; return; }
 
   body.innerHTML = sessions.map(s => {
     const viewed = [...new Set(s.events.filter(e=>e.type==="product_view").map(e=>e.product_id))];
@@ -454,11 +533,44 @@ function renderSessions(sessions, orders){
       <td><code>${esc(s.session_id.slice(0,10))}…</code></td>
       <td>${esc(new Date(s.first_seen).toLocaleString("en-IN"))}</td>
       <td>${esc(new Date(s.last_seen).toLocaleString("en-IN"))}</td>
+      <td class="items-list">${esc(sessionSource(s))}</td>
       <td class="items-list">${viewed.length ? esc(viewed.join(", ")) : "—"}</td>
       <td class="items-list">${carted.length ? esc(carted.join(", ")) : "—"}</td>
       <td>${converted}</td>
     </tr>`;
   }).join("");
+}
+
+function filteredCustomers(customers){
+  const q = document.getElementById("customerSearch").value.trim().toLowerCase();
+  if(!q) return customers;
+  return customers.filter(c => c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q));
+}
+
+function renderCustomers(customers){
+  const list = filteredCustomers(customers);
+  document.getElementById("customerCount").textContent = `${list.length} of ${customers.length} customers`;
+  const body = document.getElementById("customersBody");
+  if(!list.length){ body.innerHTML = `<tr><td colspan="6" class="empty">No customers yet</td></tr>`; return; }
+
+  body.innerHTML = list.map((c,i) => {
+    const orderRows = c.orders.map(o =>
+      `<div class="tmsg"><b>${esc(o.oid)}</b> — ${esc(STATUS_LABEL[o.status]||o.status)} — ${fmt((o.amount||0)/100)} — ${esc(o.method)} — ${esc(new Date(o.created_at).toLocaleString("en-IN"))}</div>`
+    ).join("");
+    return `<tr>
+      <td>${esc(c.name||"—")}<div class="muted">${esc(c.phone)}${c.email?" · "+esc(c.email):""}</div><div class="muted">${esc(c.addresses.join(", "))}</div></td>
+      <td>${c.order_count}<div class="muted">${c.paid_order_count} paid</div></td>
+      <td>${fmt(c.total_spent/100)}</td>
+      <td class="muted">${esc(new Date(c.first_order_at).toLocaleDateString("en-IN"))}</td>
+      <td class="muted">${esc(new Date(c.last_order_at).toLocaleDateString("en-IN"))}</td>
+      <td><button class="expand-btn" data-ci="${i}">View orders</button></td>
+    </tr>
+    <tr><td colspan="6" style="padding-top:0"><div class="transcript" id="cust-${i}">${orderRows}</div></td></tr>`;
+  }).join("");
+
+  body.querySelectorAll(".expand-btn[data-ci]").forEach(btn => {
+    btn.onclick = () => document.getElementById("cust-"+btn.dataset.ci).classList.toggle("open");
+  });
 }
 
 function renderSupport(conversations){
