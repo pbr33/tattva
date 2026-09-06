@@ -66,6 +66,16 @@ exports.handler = async (event) => {
     receipt = payload.receipt;
   }
 
+  // Order IDs are effectively public (shown to the customer, sent over
+  // WhatsApp, embedded in Razorpay notes) so they must never double as an
+  // access-control token. Refuse to create an order under an id that's
+  // already in use rather than silently overwriting someone else's order.
+  const ordersStore = getOrdersStore();
+  const existing = await ordersStore.get(receipt, { type: "json" });
+  if (existing) {
+    return json(409, { error: "Order id already in use — please try again" });
+  }
+
   let rzpRes;
   try {
     rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
@@ -95,7 +105,7 @@ exports.handler = async (event) => {
   // this write fails for some reason.
   try {
     const now = new Date().toISOString();
-    await getOrdersStore().setJSON(receipt, {
+    await ordersStore.setJSON(receipt, {
       oid: receipt,
       razorpay_order_id: order.id,
       payment_id: null,

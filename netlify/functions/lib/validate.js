@@ -1,4 +1,4 @@
-const OID_RE = /^SOT-[A-Za-z0-9]{1,36}$/;
+const OID_RE = /^SOT-[A-Za-z0-9-]{1,40}$/;
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{8,100}$/;
 
 function isValidOid(oid) {

@@ -85,6 +85,19 @@ exports.handler = async (event) => {
   };
 
   const store = getOrdersStore();
+
+  // Order IDs are effectively public (shown to the customer, sent over
+  // WhatsApp) so they must never double as an access-control token. Refuse
+  // to write over an id that's already in use rather than silently
+  // overwriting someone else's order — this is a fire-and-forget call from
+  // the client, so a rejection here just means no internal record was
+  // created; the WhatsApp message itself (sent separately) still carries
+  // the full order details.
+  const existing = await store.get(oid, { type: "json" });
+  if (existing) {
+    return json(409, { error: "Order id already in use — please try again" });
+  }
+
   await store.setJSON(oid, order);
   await updateCustomerProfile(event, order);
 

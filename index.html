@@ -1293,7 +1293,10 @@ function getForm(){
   return f;
 }
 
-function orderId(){return "SOT-"+Date.now().toString(36).toUpperCase();}
+function orderId(){
+  const rand=(window.crypto&&crypto.randomUUID)?crypto.randomUUID().replace(/-/g,"").slice(0,10):Math.random().toString(36).slice(2,12);
+  return "SOT-"+Date.now().toString(36).toUpperCase()+"-"+rand.toUpperCase();
+}
 
 function orderText(f,oid){
   const {sub,ship,discount,grand}=checkoutTotals();
