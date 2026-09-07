@@ -3,6 +3,7 @@ const { computeBreakdown } = require("./lib/pricing");
 const { isValidOid, isValidSessionId, sanitizeCustomer, hasRequiredCustomerFields } = require("./lib/validate");
 const { evaluateCoupon, recordCouponUsage, normalizeCode } = require("./lib/coupons");
 const { getCustomerFromSession } = require("./lib/auth");
+const { reserveStock } = require("./lib/products");
 
 // If this order was placed while signed in, save the freshest name/email/
 // address to the account — so checkout keeps auto-filling more accurately
@@ -44,7 +45,7 @@ exports.handler = async (event) => {
   if (!isValidOid(oid)) {
     return json(400, { error: "Invalid order id" });
   }
-  const breakdown = computeBreakdown(items);
+  const breakdown = await computeBreakdown(items);
   if (breakdown === null) return json(400, { error: "Invalid or empty basket" });
   const customer = sanitizeCustomer(payload.customer);
   if (!hasRequiredCustomerFields(customer)) {
@@ -97,6 +98,15 @@ exports.handler = async (event) => {
   if (existing) {
     return json(409, { error: "Order id already in use — please try again" });
   }
+
+  // No payment has happened yet for a WhatsApp/COD order, so an insufficient
+  // stock item can simply refuse the order outright rather than needing the
+  // force-through-and-flag handling verify-payment.js uses post-payment.
+  const stockResult = await reserveStock(items);
+  if (!stockResult.ok) {
+    return json(409, { error: "Sorry, an item in your basket just sold out", items: stockResult.failed });
+  }
+  order.stock_reserved = true;
 
   await store.setJSON(oid, order);
   await updateCustomerProfile(event, order);

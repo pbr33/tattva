@@ -3,7 +3,7 @@
   "private": true,
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124",
-    "@netlify/blobs": "^8",
+    "@netlify/blobs": "^10.7.13",
     "firebase-admin": "^14.3.0"
   }
 }

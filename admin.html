@@ -133,6 +133,7 @@ tr:last-child td{border-bottom:none}
 <div id="dash">
   <header class="topbar">
     <h1>ॐ Shri Om Tattva — Admin</h1>
+    <button id="refreshBtn" title="Reload everything from the server">⟳ Refresh</button>
     <button id="logoutBtn">Log out</button>
   </header>
   <main>
@@ -171,6 +172,11 @@ tr:last-child td{border-bottom:none}
           <tbody id="ordersBody"></tbody>
         </table>
       </div>
+      <div class="toolbar" id="ordersPager" style="justify-content:flex-end">
+        <button id="ordersPrevBtn">‹ Prev</button>
+        <span class="count" id="ordersPageInfo"></span>
+        <button id="ordersNextBtn">Next ›</button>
+      </div>
     </section>
 
     <section>
@@ -194,6 +200,19 @@ tr:last-child td{border-bottom:none}
             <th>Usage</th><th>Expires</th><th>Active</th><th></th>
           </tr></thead>
           <tbody id="couponsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Products</h2>
+      <p class="muted" style="margin-bottom:.8rem">Price changes apply immediately, everywhere (storefront display and checkout). Leave Stock blank for unlimited (default) — set a number to cap sales of that item; it drops by the ordered quantity as orders come in and is put back if an order is cancelled/refunded/returned.</p>
+      <div class="table-wrap">
+        <table id="productsTable">
+          <thead><tr>
+            <th>Product</th><th>Category</th><th>Price ₹</th><th>Stock</th><th></th>
+          </tr></thead>
+          <tbody id="productsBody"></tbody>
         </table>
       </div>
     </section>
@@ -265,7 +284,25 @@ const esc = v => String(v==null?"":v).replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 let ALL_ORDERS = [];
 let ALL_CUSTOMERS = [];
 let ALL_COUPONS = [];
+let ALL_PRODUCTS = [];
+let ALL_SESSIONS = [];
+let ALL_CONVERSATIONS = [];
 let FIN_SETTINGS = { razorpay_fee_pct: 2, default_packaging_cost: 15, default_shipping_cost: 45 };
+
+// Single-order/coupon/conversation actions patch the in-memory arrays above
+// and re-render locally instead of calling loadAll() — a full reload re-reads
+// every order (Orders, Customers and stats all scan the whole order history)
+// which used to happen after every click. loadAll() is now reserved for
+// login and the explicit Refresh button.
+const ORDERS_PAGE_SIZE = 50;
+let ordersPage = 1;
+
+function refreshOrderDependentViews(){
+  renderStats(ALL_ORDERS, ALL_SESSIONS, ALL_CONVERSATIONS);
+  renderBreakdowns(ALL_ORDERS, ALL_SESSIONS);
+  renderOrders(ALL_ORDERS);
+  renderPnL(ALL_ORDERS, FIN_SETTINGS);
+}
 
 function toast(msg){
   const t = document.getElementById("toast");
@@ -303,14 +340,17 @@ document.getElementById("logoutBtn").onclick = async () => {
     sel.appendChild(opt);
   });
 })();
-document.getElementById("orderSearch").addEventListener("input", () => renderOrders(ALL_ORDERS));
-document.getElementById("statusFilter").addEventListener("change", () => renderOrders(ALL_ORDERS));
+document.getElementById("orderSearch").addEventListener("input", () => { ordersPage = 1; renderOrders(ALL_ORDERS); });
+document.getElementById("statusFilter").addEventListener("change", () => { ordersPage = 1; renderOrders(ALL_ORDERS); });
 document.getElementById("customerSearch").addEventListener("input", () => renderCustomers(ALL_CUSTOMERS));
 document.getElementById("exportBtn").onclick = exportCsv;
+document.getElementById("refreshBtn").onclick = () => loadAll();
+document.getElementById("ordersPrevBtn").onclick = () => { ordersPage -= 1; renderOrders(ALL_ORDERS); };
+document.getElementById("ordersNextBtn").onclick = () => { ordersPage += 1; renderOrders(ALL_ORDERS); };
 
 async function loadAll(){
-  const [ordersRes, sessionsRes, supportRes, customersRes, couponsRes, finRes] = await Promise.all([
-    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers"), api("/api/admin-coupons"), api("/api/admin-financial-settings")
+  const [ordersRes, sessionsRes, supportRes, customersRes, couponsRes, finRes, productsRes] = await Promise.all([
+    api("/api/admin-orders"), api("/api/admin-sessions"), api("/api/admin-support"), api("/api/admin-customers"), api("/api/admin-coupons"), api("/api/admin-financial-settings"), api("/api/admin-products")
   ]);
   if(ordersRes.status===401 || sessionsRes.status===401){ showLogin(); return; }
   if(!ordersRes.ok || !sessionsRes.ok){ toast("Could not load some data — check your connection and try again"); return; }
@@ -318,7 +358,10 @@ async function loadAll(){
   const { sessions } = await sessionsRes.json();
   const conversations = supportRes.ok ? (await supportRes.json()).conversations : [];
   ALL_ORDERS = orders;
+  ALL_SESSIONS = sessions;
+  ALL_CONVERSATIONS = conversations;
   ALL_CUSTOMERS = customersRes.ok ? (await customersRes.json()).customers : [];
+  ordersPage = 1;
   renderStats(orders, sessions, conversations);
   renderBreakdowns(orders, sessions);
   renderOrders(orders);
@@ -327,6 +370,7 @@ async function loadAll(){
   renderCustomers(ALL_CUSTOMERS);
   if(couponsRes.ok){ const { coupons } = await couponsRes.json(); ALL_COUPONS = coupons; renderCoupons(coupons); }
   if(finRes.ok){ const { settings } = await finRes.json(); FIN_SETTINGS = settings; fillFinSettingsForm(settings); renderPnL(orders, settings); }
+  if(productsRes.ok){ const { products } = await productsRes.json(); ALL_PRODUCTS = products; renderProductsTable(ALL_PRODUCTS); }
 }
 
 const PAID_STATUSES = ["paid","processing","shipped","delivered"];
@@ -370,7 +414,13 @@ document.getElementById("fs-save").onclick = async () => {
     default_shipping_cost: document.getElementById("fs-ship").value
   })});
   btn.disabled = false; btn.textContent = "Save Settings";
-  if(res.ok){ toast("Financial settings saved"); loadAll(); } else { toast("Could not save settings"); }
+  if(res.ok){
+    const { settings } = await res.json();
+    FIN_SETTINGS = settings;
+    fillFinSettingsForm(settings);
+    renderPnL(ALL_ORDERS, settings);
+    toast("Financial settings saved");
+  } else { toast("Could not save settings"); }
 };
 
 function lastCheckoutEvent(session){
@@ -483,8 +533,18 @@ function filteredOrders(orders){
 }
 
 function renderOrders(orders){
-  const list = filteredOrders(orders);
-  document.getElementById("orderCount").textContent = `${list.length} of ${orders.length} orders`;
+  const filtered = filteredOrders(orders);
+  document.getElementById("orderCount").textContent = `${filtered.length} of ${orders.length} orders`;
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / ORDERS_PAGE_SIZE));
+  ordersPage = Math.min(Math.max(1, ordersPage), pageCount);
+  const start = (ordersPage - 1) * ORDERS_PAGE_SIZE;
+  const list = filtered.slice(start, start + ORDERS_PAGE_SIZE);
+
+  document.getElementById("ordersPageInfo").textContent = filtered.length ? `Page ${ordersPage} of ${pageCount}` : "";
+  document.getElementById("ordersPrevBtn").disabled = ordersPage <= 1;
+  document.getElementById("ordersNextBtn").disabled = ordersPage >= pageCount;
+
   const body = document.getElementById("ordersBody");
   if(!list.length){ body.innerHTML = `<tr><td colspan="7" class="empty">No matching orders</td></tr>`; return; }
 
@@ -552,8 +612,13 @@ function renderOrders(orders){
       btn.disabled = true; btn.textContent = "Saving…";
       const res = await api("/api/admin-update-order", { method:"POST", body: JSON.stringify({ oid, status, note, courier, tracking_number, refund_amount: refund_amount||undefined, packaging_cost: packaging_cost||undefined, shipping_cost: shipping_cost||undefined }) });
       btn.disabled = false; btn.textContent = "Save";
-      if(res.ok){ toast("Order updated"); loadAll(); }
-      else { toast("Update failed"); }
+      if(res.ok){
+        const { order } = await res.json();
+        const idx = ALL_ORDERS.findIndex(o => o.oid === order.oid);
+        if(idx !== -1) ALL_ORDERS[idx] = order;
+        toast("Order updated");
+        refreshOrderDependentViews();
+      } else { toast("Update failed"); }
     };
   });
 
@@ -569,8 +634,13 @@ function renderOrders(orders){
     btn.onclick = async () => {
       btn.disabled = true; btn.textContent = "Creating…";
       const res = await api("/api/admin-create-shipment", { method:"POST", body: JSON.stringify({ oid: btn.dataset.oid }) });
-      if(res.ok){ toast("Shiprocket order created"); loadAll(); }
-      else { const d = await res.json().catch(()=>({})); toast("Shiprocket: " + (d.error||"failed")); btn.disabled=false; btn.textContent="Create Shiprocket Order"; }
+      const d = await res.json().catch(()=>({}));
+      if(d.order){
+        const idx = ALL_ORDERS.findIndex(o => o.oid === d.order.oid);
+        if(idx !== -1) ALL_ORDERS[idx] = d.order;
+      }
+      if(res.ok){ toast("Shiprocket order created"); refreshOrderDependentViews(); }
+      else { toast("Shiprocket: " + (d.error||"failed")); btn.disabled=false; btn.textContent="Create Shiprocket Order"; refreshOrderDependentViews(); }
     };
   });
 }
@@ -664,7 +734,13 @@ function renderCoupons(coupons){
       if(!coupon) return;
       btn.disabled = true;
       const res = await api("/api/admin-save-coupon", { method:"POST", body: JSON.stringify({ ...coupon, active: btn.dataset.active==="1" }) });
-      if(res.ok){ toast("Coupon updated"); loadAll(); } else { toast("Update failed"); btn.disabled=false; }
+      if(res.ok){
+        const { coupon: updated } = await res.json();
+        const idx = ALL_COUPONS.findIndex(c => c.code === updated.code);
+        if(idx !== -1) ALL_COUPONS[idx] = updated;
+        toast("Coupon updated");
+        renderCoupons(ALL_COUPONS);
+      } else { toast("Update failed"); btn.disabled=false; }
     };
   });
 }
@@ -690,16 +766,55 @@ document.getElementById("cf-save").onclick = async () => {
   const res = await api("/api/admin-save-coupon", { method:"POST", body: JSON.stringify(body) });
   btn.disabled = false; btn.textContent = "Save Coupon";
   if(res.ok){
+    const { coupon } = await res.json();
+    const idx = ALL_COUPONS.findIndex(c => c.code === coupon.code);
+    if(idx !== -1) ALL_COUPONS[idx] = coupon; else ALL_COUPONS.push(coupon);
+    renderCoupons(ALL_COUPONS);
     toast("Coupon saved");
     ["cf-code","cf-value","cf-min","cf-max","cf-usagelimit","cf-expires"].forEach(id => document.getElementById(id).value="");
     document.getElementById("cf-userlimit").value = "1";
     document.getElementById("cf-newuser").checked = false;
-    loadAll();
   } else {
     const d = await res.json().catch(()=>({}));
     toast(d.error || "Could not save coupon");
   }
 };
+
+function renderProductsTable(products){
+  const body = document.getElementById("productsBody");
+  if(!products.length){ body.innerHTML = `<tr><td colspan="5" class="empty">No products</td></tr>`; return; }
+
+  body.innerHTML = products.map(p => `
+    <tr data-id="${esc(p.id)}">
+      <td><b>${esc(p.name)}</b></td>
+      <td class="muted">${esc(p.cat)}</td>
+      <td><input type="number" class="pf-price" min="1" value="${p.price}" style="width:6rem"></td>
+      <td><input type="number" class="pf-stock" min="0" placeholder="Unlimited" value="${p.stock==null?"":p.stock}" style="width:6.5rem"></td>
+      <td><button class="pf-save">Save</button></td>
+    </tr>`).join("");
+
+  body.querySelectorAll(".pf-save").forEach(btn => {
+    btn.onclick = async () => {
+      const row = btn.closest("tr");
+      const id = row.dataset.id;
+      const price = row.querySelector(".pf-price").value;
+      const stock = row.querySelector(".pf-stock").value;
+      btn.disabled = true; btn.textContent = "Saving…";
+      const res = await api("/api/admin-save-product", { method:"POST", body: JSON.stringify({ id, price, stock }) });
+      btn.disabled = false; btn.textContent = "Save";
+      if(res.ok){
+        const { product } = await res.json();
+        const idx = ALL_PRODUCTS.findIndex(p => p.id === product.id);
+        if(idx !== -1) ALL_PRODUCTS[idx] = product;
+        renderProductsTable(ALL_PRODUCTS);
+        toast("Product updated");
+      } else {
+        const d = await res.json().catch(()=>({}));
+        toast(d.error || "Could not save product");
+      }
+    };
+  });
+}
 
 function filteredCustomers(customers){
   const q = document.getElementById("customerSearch").value.trim().toLowerCase();
@@ -770,8 +885,14 @@ function renderSupport(conversations){
       btn.disabled = true;
       const res = await api("/api/admin-update-support", { method:"POST", body: JSON.stringify({ session_id: btn.dataset.session, status: btn.dataset.next }) });
       btn.disabled = false;
-      if(res.ok){ toast("Conversation updated"); loadAll(); }
-      else { toast("Update failed"); }
+      if(res.ok){
+        const { conversation } = await res.json();
+        const idx = ALL_CONVERSATIONS.findIndex(c => c.session_id === conversation.session_id);
+        if(idx !== -1) ALL_CONVERSATIONS[idx] = conversation;
+        toast("Conversation updated");
+        renderSupport(ALL_CONVERSATIONS);
+        renderStats(ALL_ORDERS, ALL_SESSIONS, ALL_CONVERSATIONS);
+      } else { toast("Update failed"); }
     };
   });
 }

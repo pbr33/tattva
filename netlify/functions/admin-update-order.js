@@ -1,5 +1,8 @@
 const { verifyAdminSession } = require("./lib/auth");
 const { getOrdersStore } = require("./lib/blobs");
+const { releaseStock } = require("./lib/products");
+
+const RESTOCK_STATUSES = new Set(["cancelled", "refunded", "return_approved"]);
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -70,6 +73,22 @@ exports.handler = async (event) => {
     const amt = Number(shipping_cost);
     if (!Number.isFinite(amt) || amt < 0) return json(400, { error: "Invalid shipping_cost" });
     doc.shipping_cost = Math.round(amt * 100); // paise
+  }
+
+  // Release reserved stock back when an order that actually had it reserved
+  // (whatsapp_pending or paid — see log-order.js/verify-payment.js) is
+  // cancelled/refunded/returned. Guarded by stock_released so re-saving the
+  // same terminal status twice (or cancelled -> refunded) never double-frees
+  // it. An order that never got past "created" (abandoned Razorpay checkout)
+  // never reserved anything, so this is correctly a no-op for those.
+  if (RESTOCK_STATUSES.has(status) && doc.stock_reserved && !doc.stock_released) {
+    try {
+      await releaseStock(doc.items);
+      doc.stock_released = true;
+      noteParts.push("Stock released back to inventory");
+    } catch {
+      // best-effort — never blocks the order status update
+    }
   }
 
   doc.status_history.push({ status, note: noteParts.length ? noteParts.join(" · ") : undefined, ts: now });

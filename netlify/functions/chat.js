@@ -2,6 +2,7 @@ const Anthropic = require("@anthropic-ai/sdk");
 const { getSupportStore } = require("./lib/blobs");
 const { buildSystemPrompt } = require("./lib/knowledge");
 const { isValidSessionId } = require("./lib/validate");
+const { checkRateLimit, rateLimitedResponse } = require("./lib/rate-limit");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -35,6 +36,9 @@ function extractJson(text) {
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+
+  const limit = await checkRateLimit(event, { bucket: "chat", limit: 20, windowSeconds: 5 * 60 });
+  if (!limit.allowed) return rateLimitedResponse(limit.retryAfter);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return json(500, { error: "Chat is not configured on the server" });

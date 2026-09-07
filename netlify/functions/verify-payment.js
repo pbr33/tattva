@@ -3,6 +3,7 @@ const { getOrdersStore, getSessionsStore, getCustomersStore } = require("./lib/b
 const { createShipment } = require("./lib/shiprocket");
 const { recordCouponUsage } = require("./lib/coupons");
 const { getCustomerFromSession } = require("./lib/auth");
+const { reserveStock, forceReserveStock } = require("./lib/products");
 
 // If this order was placed while signed in, save the freshest name/email/
 // address to the account — so checkout keeps auto-filling more accurately
@@ -85,6 +86,33 @@ exports.handler = async (event) => {
         // consumes a limited-use code.
         if (doc.coupon && doc.customer && doc.customer.phone) {
           try { await recordCouponUsage(doc.coupon.code, doc.customer.phone); } catch { /* best-effort */ }
+        }
+
+        // Same principle for stock: only decremented once payment is
+        // confirmed, so an abandoned Razorpay checkout never locks up
+        // inventory. Payment is already captured by this point though, so
+        // unlike log-order.js we can no longer refuse the order if stock
+        // ran out in the meantime — force the decrement through (it can go
+        // negative) and flag it for manual review instead of hiding it.
+        if (!doc.stock_reserved) {
+          try {
+            const stockResult = await reserveStock(doc.items);
+            if (!stockResult.ok) {
+              // reserveStock rolls back all-or-nothing on failure, so every
+              // item is still at its pre-attempt count — force the whole
+              // order's items through rather than just the ones that failed.
+              const { oversold } = await forceReserveStock(doc.items);
+              doc.oversold = true;
+              doc.status_history.push({
+                status: doc.status,
+                note: `⚠ Oversold at payment time — insufficient stock for: ${oversold.join(", ")}. Needs manual review.`,
+                ts: now
+              });
+            }
+            doc.stock_reserved = true;
+          } catch {
+            // best-effort — never blocks the payment response
+          }
         }
 
         // Auto-create the Shiprocket order now that payment is confirmed.

@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { createSessionCookie } = require("./lib/auth");
+const { checkRateLimit, rateLimitedResponse } = require("./lib/rate-limit");
 
 const json = (statusCode, body, extraHeaders) => ({
   statusCode,
@@ -9,6 +10,9 @@ const json = (statusCode, body, extraHeaders) => ({
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+
+  const limit = await checkRateLimit(event, { bucket: "admin-login", limit: 5, windowSeconds: 15 * 60 });
+  if (!limit.allowed) return rateLimitedResponse(limit.retryAfter);
 
   const adminPassword = process.env.ADMIN_PASSWORD;
   if (!adminPassword || !process.env.ADMIN_SESSION_SECRET) {

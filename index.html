@@ -121,6 +121,7 @@ header.scrolled .navlinks{color:var(--ink)}
 .btn:active{transform:scale(.97)}
 .btn-gold{background:linear-gradient(135deg,#DBA92B,#C9971C);color:var(--ink);box-shadow:0 6px 22px rgba(201,151,28,.4)}
 .btn-gold:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(201,151,28,.55)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
 .btn-ghost{border:2px solid var(--gold-bright);color:var(--gold-bright)}
 .btn-ghost:hover{background:rgba(233,190,99,.14);transform:translateY(-2px)}
 .hero-badges{display:flex;gap:1.7rem;margin-top:2.6rem;flex-wrap:wrap;font-size:.92rem;color:#CFC0A3}
@@ -192,6 +193,8 @@ section{padding:4.5rem 1.25rem}
 .card:hover .qview{opacity:1;transform:translate(-50%,0)}
 .tag{position:absolute;top:.75rem;left:.75rem;background:var(--kumkum);color:var(--ivory);font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;font-weight:800;padding:.3rem .7rem;border-radius:5px;z-index:2}
 .tag.gold{background:linear-gradient(135deg,#DBA92B,#C9971C);color:var(--ink)}
+.tag.soldout{background:#5a5a5a}
+.low-stock{font-size:.78rem;font-weight:700;color:var(--kumkum-deep)}
 .card-body{padding:1.1rem 1.15rem 1.25rem;display:flex;flex-direction:column;gap:.4rem;flex:1}
 .card h3{font-size:1.08rem;color:var(--ink)}
 .card .sub{font-size:.86rem;color:var(--ink-soft);flex:1}
@@ -202,6 +205,7 @@ section{padding:4.5rem 1.25rem}
 .card .add{margin-top:.75rem;background:var(--ink);color:var(--ivory);padding:.7rem;border-radius:9px;font-weight:700;letter-spacing:.03em;transition:background .2s,transform .15s}
 .card .add:hover{background:var(--kumkum);transform:translateY(-1px)}
 .card .add.added{background:linear-gradient(135deg,#DBA92B,#C9971C);color:var(--ink)}
+.card .add:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
 /* ============ FEATURED SPOTLIGHT ============ */
 .featured{background:linear-gradient(150deg,#241510,#1B110C 60%,#2A0E0A);color:var(--ivory);position:relative;overflow:hidden}
@@ -1006,10 +1010,14 @@ function setFilter(c){ activeFilter=c; renderFilters(); renderProducts(); }
 
 function renderProducts(){
   const list = PRODUCTS.filter(p=>activeFilter==="All"||p.cat===activeFilter);
-  document.getElementById("productGrid").innerHTML = list.map((p,i)=>`
+  document.getElementById("productGrid").innerHTML = list.map((p,i)=>{
+    const soldOut = p.stock===0;
+    const lowStock = typeof p.stock==="number" && p.stock>0 && p.stock<=5;
+    const tag = soldOut ? `<span class="tag soldout">Sold Out</span>` : (p.tag?`<span class="tag ${p.tag==='Temple pick'?'gold':''}">${p.tag}</span>`:"");
+    return `
     <article class="card reveal" style="transition-delay:${Math.min(i*45,320)}ms">
       <div class="imgbox" onclick="openQuickView('${p.id}')" role="button" tabindex="0" aria-label="View ${p.name}" onkeydown="if(event.key==='Enter')openQuickView('${p.id}')">
-        ${p.tag?`<span class="tag ${p.tag==='Temple pick'?'gold':''}">${p.tag}</span>`:""}
+        ${tag}
         <img src="data:image/jpeg;base64,${p.img}" alt="${p.name}" loading="lazy">
         <span class="qview">Quick view ✦</span>
       </div>
@@ -1017,10 +1025,31 @@ function renderProducts(){
         <h3>${p.name}</h3>
         <div class="sub">${p.sub}</div>
         <div class="price-row"><span class="price">${fmt(p.price)}</span><span class="mrp">${fmt(p.mrp)}</span><span class="off">${Math.round((1-p.price/p.mrp)*100)}% off</span></div>
-        <button class="add" id="add-${p.id}" onclick="addToCart('${p.id}')">Add to basket</button>
+        ${lowStock?`<div class="low-stock">Only ${p.stock} left</div>`:""}
+        <button class="add" id="add-${p.id}" onclick="addToCart('${p.id}')" ${soldOut?"disabled":""}>${soldOut?"Sold out":"Add to basket"}</button>
       </div>
-    </article>`).join("");
+    </article>`;
+  }).join("");
   observeReveals();
+}
+
+// Prices/stock shown above come from the static PRODUCTS array (defaults);
+// this fetches the admin-editable overrides and patches PRODUCTS in place,
+// then re-renders — so an admin price/stock change takes effect without a
+// deploy. Runs after the initial render rather than blocking it, so the
+// page never waits on this call to show something.
+async function loadLiveCatalog(){
+  try{
+    const res = await fetch("/api/catalog");
+    if(!res.ok) return;
+    const { products } = await res.json();
+    let changed = false;
+    products.forEach(cp => {
+      const p = PRODUCTS.find(x=>x.id===cp.id);
+      if(p && (p.price!==cp.price || p.stock!==cp.stock)){ p.price=cp.price; p.stock=cp.stock; changed=true; }
+    });
+    if(changed){ renderProducts(); updateCart(); }
+  }catch(e){ /* best-effort — static defaults stay in place if this fails */ }
 }
 
 function renderRite(){
@@ -1086,6 +1115,8 @@ window.addEventListener("scroll",()=>{
 const MAX_QTY_PER_ITEM = 20;
 function addToCart(id){
   if((cart[id]||0)>=MAX_QTY_PER_ITEM){ toast(`Maximum ${MAX_QTY_PER_ITEM} per item`); return; }
+  const p=PRODUCTS.find(x=>x.id===id);
+  if(p && typeof p.stock==="number" && (cart[id]||0)>=p.stock){ toast(p.stock===0?"Sorry, this item is sold out":`Only ${p.stock} left in stock`); return; }
   cart[id]=(cart[id]||0)+1;
   const b=document.getElementById("add-"+id);
   if(b){b.textContent="Added ✔";b.classList.add("added");setTimeout(()=>{b.textContent="Add to basket";b.classList.remove("added")},1200);}
@@ -1096,6 +1127,8 @@ function addToCart(id){
 }
 function changeQty(id,d){
   if(d>0 && (cart[id]||0)>=MAX_QTY_PER_ITEM){ toast(`Maximum ${MAX_QTY_PER_ITEM} per item`); return; }
+  const p=PRODUCTS.find(x=>x.id===id);
+  if(d>0 && p && typeof p.stock==="number" && (cart[id]||0)>=p.stock){ toast(`Only ${p.stock} left in stock`); return; }
   cart[id]=(cart[id]||0)+d;
   if(cart[id]<=0) delete cart[id];
   updateCart();
@@ -1195,6 +1228,8 @@ function toggleCart(open){
 /* ---------------- Quick view ---------------- */
 function openQuickView(id){
   const p=PRODUCTS.find(x=>x.id===id);
+  const soldOut = p.stock===0;
+  const lowStock = typeof p.stock==="number" && p.stock>0 && p.stock<=5;
   trackEvent("product_view", id);
   document.getElementById("qvBody").innerHTML=`
     <div class="qv-grid">
@@ -1204,8 +1239,9 @@ function openQuickView(id){
         <h3>${p.name}</h3>
         <div class="sub">${p.sub}</div>
         <div class="qv-price">${fmt(p.price)} <s>${fmt(p.mrp)}</s></div>
+        ${lowStock?`<div class="low-stock">Only ${p.stock} left</div>`:""}
         <div class="qv-note">🛕 Reverentially offered before Shri Rudra Mahakali and Shri Sarpaskanda Subrahmanya, and sanctified through traditional Vedic rituals before dispatch.</div>
-        <button class="btn btn-gold" style="width:100%;justify-content:center" onclick="addToCart('${p.id}');closeQuickView();toggleCart(true)">Add to Basket — ${fmt(p.price)}</button>
+        <button class="btn btn-gold" style="width:100%;justify-content:center" onclick="addToCart('${p.id}');closeQuickView();toggleCart(true)" ${soldOut?"disabled":""}>${soldOut?"Sold out":`Add to Basket — ${fmt(p.price)}`}</button>
       </div>
     </div>`;
   document.getElementById("qvModal").classList.add("open");
@@ -1214,6 +1250,7 @@ function closeQuickView(){document.getElementById("qvModal").classList.remove("o
 
 /* ---------------- Checkout ---------------- */
 let payMethod="razorpay";
+const payBtnDefaultLabel=`🕉  Place Order`;
 
 function openCheckout(){
   const {count,grand}=cartTotals();
@@ -1316,18 +1353,32 @@ function setPayBtnBusy(busy,label){
   if(label) b.textContent=label;
 }
 
-function logWhatsAppOrder(f,oid){
+// Fire-and-forget by design for infra failures (the WhatsApp message itself
+// is the real order request in this flow — see log-order.js) but a 409
+// specifically means the server rejected it as sold out, which the customer
+// does need to see before we send them to WhatsApp for nothing.
+async function logWhatsAppOrder(f,oid){
   const items=Object.keys(cart).map(id=>({id,qty:cart[id]}));
-  fetch("/api/log-order",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({oid,items,customer:f,session_id:SESSION_ID,coupon_code:appliedCoupon?appliedCoupon.code:undefined})
-  }).catch(()=>{});
+  try{
+    const res=await fetch("/api/log-order",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({oid,items,customer:f,session_id:SESSION_ID,coupon_code:appliedCoupon?appliedCoupon.code:undefined})
+    });
+    if(res.status===409){
+      const d=await res.json().catch(()=>({}));
+      return {ok:false, error:d.error};
+    }
+    return {ok:true};
+  }catch(e){
+    return {ok:true}; // network hiccup — don't block the WhatsApp message over it
+  }
 }
 
-function fallbackToWhatsApp(f,oid,reason){
+async function fallbackToWhatsApp(f,oid,reason){
+  const result=await logWhatsAppOrder(f,oid);
+  if(!result.ok){ toast(result.error||"Sorry, an item in your basket just sold out"); return; }
   toast(reason+" — sending order via WhatsApp instead");
-  logWhatsAppOrder(f,oid);
   window.open(`https://wa.me/${CONFIG.WHATSAPP}?text=${orderText(f,oid)}`,"_blank");
   showSuccess(oid,"Your order has been sent to the Mandir on WhatsApp. We will confirm and share UPI payment details shortly.");
 }
@@ -1336,7 +1387,8 @@ async function placeOrder(){
   const f=getForm(); if(!f) return;
   const oid=orderId();
   if(payMethod==="whatsapp"){
-    logWhatsAppOrder(f,oid);
+    const result=await logWhatsAppOrder(f,oid);
+    if(!result.ok){ toast(result.error||"Sorry, an item in your basket just sold out"); return; }
     window.open(`https://wa.me/${CONFIG.WHATSAPP}?text=${orderText(f,oid)}`,"_blank");
     showSuccess(oid,"Your order has been sent to the Mandir on WhatsApp. We will confirm and share UPI payment details shortly.");
     return;
@@ -1355,10 +1407,16 @@ async function placeOrder(){
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({items,receipt:oid,customer:f,session_id:SESSION_ID,coupon_code:appliedCoupon?appliedCoupon.code:undefined})
     });
+    if(res.status===409){
+      const d=await res.json().catch(()=>({}));
+      setPayBtnBusy(false,payBtnDefaultLabel);
+      toast(d.error||"Sorry, an item in your basket just sold out");
+      return;
+    }
     if(!res.ok) throw new Error("create-order failed");
     order=await res.json();
   }catch(e){
-    setPayBtnBusy(false,`🕉  Place Order`);
+    setPayBtnBusy(false,payBtnDefaultLabel);
     fallbackToWhatsApp(f,oid,"Could not start secure payment");
     return;
   }
@@ -1391,7 +1449,7 @@ async function placeOrder(){
         if(!vres.ok||!vdata.verified) throw new Error("verification failed");
         showSuccess(oid,`Payment received and verified (ID: ${resp.razorpay_payment_id}). The Mandir will consecrate and dispatch your order shortly. A confirmation will reach you on ${f.phone}.`);
       }catch(e){
-        setPayBtnBusy(false,`🕉  Place Order`);
+        setPayBtnBusy(false,payBtnDefaultLabel);
         toast("Payment could not be verified — please contact us on WhatsApp with your payment ID before we can confirm your order");
       }
     },
@@ -1761,6 +1819,7 @@ showPromoBannerIfNeeded();
 checkLoginState();
 applyContactConfig(); renderProductSchema(); trackEvent("view", undefined, {referrer: document.referrer||null, utm: getUtmParams()});
 renderFilters(); renderProducts(); renderRite(); renderTesti(); renderFaq(); renderMarquee(); renderRashiGrid(); makeEmbers(); updateCart(); observeReveals();
+loadLiveCatalog();
 window.addEventListener("load",()=>setTimeout(()=>document.getElementById("preloader").classList.add("done"),650));
 setTimeout(()=>document.getElementById("preloader").classList.add("done"),2500); /* safety */
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleCart(false);closeCheckout();closeQuickView();toggleChatWidget(false);closeAccountModal();closeMyOrders();}});

@@ -2,6 +2,7 @@ const { computeBreakdown } = require("./lib/pricing");
 const { getOrdersStore } = require("./lib/blobs");
 const { isValidOid, sanitizeCustomer } = require("./lib/validate");
 const { evaluateCoupon, normalizeCode } = require("./lib/coupons");
+const { checkStockAvailable } = require("./lib/products");
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -30,9 +31,17 @@ exports.handler = async (event) => {
   // Amount is computed here from server-side prices — the client sends only
   // item ids/quantities, never a trusted amount. This is what stops someone
   // from tampering with the price via devtools before paying.
-  const breakdown = computeBreakdown(payload.items);
+  const breakdown = await computeBreakdown(payload.items);
   if (breakdown === null) {
     return json(400, { error: "Invalid or empty basket" });
+  }
+
+  // Advisory only — rejects an obviously-oversold checkout before the
+  // customer pays. Stock isn't actually reserved until payment is verified
+  // (verify-payment.js), so this doesn't guarantee availability by itself.
+  const stockCheck = await checkStockAvailable(payload.items);
+  if (!stockCheck.ok) {
+    return json(409, { error: "Sorry, an item in your basket just sold out", items: stockCheck.failed });
   }
 
   const customer = sanitizeCustomer(payload.customer);

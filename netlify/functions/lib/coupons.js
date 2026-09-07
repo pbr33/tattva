@@ -55,15 +55,42 @@ async function evaluateCoupon(code, subtotalRupees, phone) {
   return { ok: true, discount, coupon };
 }
 
+const RECORD_USAGE_MAX_ATTEMPTS = 20;
+
+// Increments used_count/used_by with compare-and-swap (onlyIfMatch) instead
+// of a plain read-modify-write, so two orders redeeming the same coupon in
+// the same instant can't silently clobber each other's increment — the
+// loser's write is rejected (modified:false) and retries against the fresh
+// value instead of being lost. Jittered backoff between retries matters here:
+// without it, every loser wakes up and collides again at the same instant,
+// and a busy coupon can burn through all attempts without anyone winning.
 async function recordCouponUsage(code, phone) {
   const store = getCouponsStore();
   const key = normalizeCode(code);
-  const coupon = await store.get(key, { type: "json" });
-  if (!coupon) return;
-  coupon.used_count = (coupon.used_count || 0) + 1;
-  coupon.used_by = [...(coupon.used_by || []), phone].slice(-500);
-  coupon.updated_at = new Date().toISOString();
-  await store.setJSON(key, coupon);
+
+  for (let attempt = 0; attempt < RECORD_USAGE_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 25 * attempt));
+    }
+
+    const current = await store.getWithMetadata(key, { type: "json" });
+    if (!current) return;
+    const { data: coupon, etag } = current;
+
+    const updated = {
+      ...coupon,
+      used_count: (coupon.used_count || 0) + 1,
+      used_by: [...(coupon.used_by || []), phone].slice(-500),
+      updated_at: new Date().toISOString()
+    };
+
+    const result = await store.setJSON(key, updated, { onlyIfMatch: etag });
+    if (result.modified) return;
+    // Someone else wrote in between (result.modified === false) — the coupon
+    // was re-read fresh above, so just retry with the latest state.
+  }
+
+  console.error(`recordCouponUsage: gave up after ${RECORD_USAGE_MAX_ATTEMPTS} attempts for coupon ${key} (phone ${phone})`);
 }
 
 module.exports = { normalizeCode, getCoupon, evaluateCoupon, recordCouponUsage, hasExistingPaidOrder };

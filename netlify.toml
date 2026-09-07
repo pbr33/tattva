@@ -22,6 +22,14 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    # 'unsafe-inline' is required for script-src/style-src because the pages
+    # use inline onclick handlers and inline <script>/<style> blocks with no
+    # build step to add nonces. Every other directive is a real allowlist —
+    # it still blocks framing, arbitrary external script/connect/frame hosts,
+    # <object>/<embed>, and base-tag hijacking. The allowed hosts cover:
+    # Google Fonts (style/font), Firebase phone-auth + reCAPTCHA (script/
+    # connect/frame), and Razorpay Checkout (script/connect/frame).
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.razorpay.com; frame-src https://www.google.com https://*.razorpay.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/admin.html"
